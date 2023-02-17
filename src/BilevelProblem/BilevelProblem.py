@@ -64,15 +64,18 @@ class BilevelProblem:
       param y0: initial value for outer variable x
     """
     # Compute the Hessian of g(x,y*(x))
-    y_opt = 0
-    Jac = (-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
-    grad = self.outer_grad1(x_old,y_opt) + Jac.T * self.outer_grad2(x_old,y_opt)
+    y_opt = -x_old
+    Jac = -1#(-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
+    grad = self.outer_grad1(x_old,y_opt) + Jac * self.outer_grad2(x_old,y_opt)#Jac.T * self.outer_grad2(x_old,y_opt)
+    #print(x_old, self.outer_grad1(x_old,y_opt), Jac, Jac * self.outer_grad2(x_old,y_opt))
     x_new = x_old-stepsize*grad
     return x_new
     
   def check_convergence(self):
+    """
+    Checks convergence of the alorithm based on chosen convergence criateria.
+    """
     return False
-    # Visualize iterations.
 
   def visualize(self, intermediate_points, plot_x_lim=5, plot_y_lim=5, plot_nb_contours=50):
     """
@@ -96,6 +99,7 @@ class BilevelProblem:
     #plt.scatter(points[-1, 0], points[-1, 1], marker='*', color='r')
     for i in intermediate_points:
       plt.scatter(i, 0, marker='.', color='#495CD5')
+    plt.scatter(intermediate_points[-1], 0, marker='*', color='r')
     plt.xlabel('x')
     plt.ylabel('y')
     plt.xlim(-plot_x_lim, plot_x_lim)
