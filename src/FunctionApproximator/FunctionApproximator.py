@@ -33,18 +33,21 @@ class NeuralNetwork(nn.Module):
         self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
         nn.init.kaiming_uniform_(self.layer_2.weight)
         self.layer_3 = nn.Linear(layer_sizes[2], layer_sizes[3])
+        nn.init.kaiming_uniform_(self.layer_3.weight)
+        self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
        
     def forward(self, x):
         x = torch.relu(self.layer_1(x))
         x = torch.tanh(self.layer_2(x))
         x = torch.tanh(self.layer_3(x))
+        x = torch.tanh(self.layer_4(x))
         return x
 
 class FunctionApproximator():
     """
     An object to approximate an arbitrary function.
     """
-    def __init__(self, layer_sizes=[2, 10, 20, 1], batch_size = 64):
+    def __init__(self, layer_sizes=[2, 10, 20, 10, 1], batch_size = 64):
         self.batch_size = batch_size
         self.NN = NeuralNetwork(layer_sizes)
 
