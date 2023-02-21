@@ -24,26 +24,39 @@ class BilevelProblem:
     self.x0=x0
     self.y0=y0
     self.maxiter=maxiter
+    self.outer_grad1 = outer_grad1
+    self.outer_grad2 = outer_grad2
+    self.inner_grad22 = inner_grad22
+    self.inner_grad12 = inner_grad12
+    n_iters = 0
+    converged = False
+    x_new = self.x0
+    iters = [x_new]
+    while n_iters < self.maxiter and converged is False:
+      x_old = x_new#.copy()
+      x_new = self.find_x_new(x_old, method)
+      converged = self.check_convergence()
+      iters.append(x_new)
+      n_iters += 1
+    return x_new, iters, n_iters
+
+  def find_x_new(self, x_old, method, stepsize=0.1):
+    """
+    Find the optimal solution.
+      param x0: initial value for inner variable x
+      param y0: initial value for outer variable x
+    """
     if method=="implicit_diff":
       # Get y*(x) the argmin of the inner objective g(x,y)
       # Get Jy*(x) the Jacobian
       # Compute the gradient of the outer objective L(x)=f(x,y*(x))
       # Compute the next iterate x_{k+1} = x_k - grad L(x)
-      self.outer_grad1 = outer_grad1
-      self.outer_grad2 = outer_grad2
-      self.inner_grad22 = inner_grad22
-      self.inner_grad12 = inner_grad12
-      n_iters = 0
-      converged = False
-      x_new = self.x0
-      iters = [x_new]
-      while n_iters < self.maxiter and converged is False:
-        x_old = x_new#.copy()
-        x_new = self.find_x_new(x_old)
-        converged = self.check_convergence()
-        iters.append(x_new)
-        n_iters += 1
-      x_opt = x_new
+      # Compute the Hessian of g(x,y*(x))
+      y_opt = -x_old
+      Jac = -1#(-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
+      grad = self.outer_grad1(x_old,y_opt) + Jac * self.outer_grad2(x_old,y_opt)#Jac.T * self.outer_grad2(x_old,y_opt)
+      #print(x_old, self.outer_grad1(x_old,y_opt), Jac, Jac * self.outer_grad2(x_old,y_opt))
+      x_new = x_old-stepsize*grad
     elif method=="neural_implicit_diff":
       # Fit a neural network to y*_x: w -> y*_x(w)
       # Get y_k the arg min of y*_{x_k} where x_k is the current x
@@ -51,24 +64,10 @@ class BilevelProblem:
       # Get the Jacobian of y*_{x_k} where x_k is the current x
       # Compute the gradient of L(x) using the obtained y_k and the Jacobian
       # Compute the next iterate x_{k+1} = x_k - grad L(x)
-      n_iters = 0
-      x_opt = iters = None
+      # Instanciate a function approximator with the training data.
+      x_new = None
     else:
-      raise ValueError("Unkown method for solving a bilevel problem")        
-    return x_opt, iters, n_iters
-
-  def find_x_new(self, x_old, stepsize=0.1):
-    """
-    Find the optimal solution.
-      param x0: initial value for inner variable x
-      param y0: initial value for outer variable x
-    """
-    # Compute the Hessian of g(x,y*(x))
-    y_opt = -x_old
-    Jac = -1#(-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
-    grad = self.outer_grad1(x_old,y_opt) + Jac * self.outer_grad2(x_old,y_opt)#Jac.T * self.outer_grad2(x_old,y_opt)
-    #print(x_old, self.outer_grad1(x_old,y_opt), Jac, Jac * self.outer_grad2(x_old,y_opt))
-    x_new = x_old-stepsize*grad
+      raise ValueError("Unkown method for solving a bilevel problem")   
     return x_new
     
   def check_convergence(self):
