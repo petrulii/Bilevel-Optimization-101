@@ -6,4 +6,4 @@ A project on bilevel optimization in the context of an intership at Thoth team I
 Make sure to add both BilevelProblem and FunctionApproximator directories to system PATH before running.
 
 
-Dependencies: numpy, torch, sklearn, matplotlib
+Dependencies: numpy, torch, sklearn, matplotlib, BilevelProblem, FunctionApproximator
