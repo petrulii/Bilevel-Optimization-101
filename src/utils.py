@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
 
 def plot_2D_functions(f1, f2, plot_x_lim=10, plot_y_lim=10, plot_nb_contours=10):

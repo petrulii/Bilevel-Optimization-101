@@ -1,11 +1,11 @@
 import itertools
+import numpy as np
+import matplotlib.pyplot as plt
 import torch
 from torch import nn, tensor
-import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from sklearn.datasets import make_circles
 from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
 
 class Data(Dataset):
     """
@@ -27,6 +27,8 @@ class NeuralNetwork(nn.Module):
     A neural network to approximate an arbitrary function.
     """
     def __init__(self, layer_sizes):
+        if len(layer_sizes) != 5:
+            raise ValueError("The network has five layers, you must give a list with five integer values")
         super(NeuralNetwork, self).__init__()
         self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
         nn.init.kaiming_uniform_(self.layer_1.weight)
@@ -51,26 +53,37 @@ class FunctionApproximator():
         self.batch_size = batch_size
         self.NN = NeuralNetwork(layer_sizes)
 
-    def load_data(self, X, y):
-        self.X_train = X
-        self.y_train = y
-        self.train_data = Data(X, y)
-        self.train_dataloader = DataLoader(dataset=self.train_data, batch_size=self.batch_size, shuffle=True)
+    def load_data(self, X_inner, y_inner, X_outer=None, y_outer=None):
+        self.X_inner = X_inner
+        self.y_inner = y_inner
+        self.inner_data = Data(X_inner, y_inner)
+        self.inner_dataloader = DataLoader(dataset=self.inner_data, batch_size=self.batch_size, shuffle=True)
+        self.X_outer = X_outer
+        self.y_outer = y_outer
+        if not (self.X_outer is None and self.y_outer is None):
+            self.outer_data = Data(X_outer, y_outer)
+            self.outer_dataloader = DataLoader(dataset=self.outer_data, batch_size=self.batch_size, shuffle=True)
 
     def train(self, num_epochs = 100, learning_rate = 0.01):
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
-        loss_fn = nn.MSELoss()
+        # If we are approximating h_*(x)
+        if not (self.X_outer is None and self.y_outer is None):
+            # Set the inner loss G with a fixed x as the objective function
+            loss_fn = self.loss_G
+        # If we are approximating a_*(x)
+        else:
+            # Set the loss H with a fixed x as the objective function
+            loss_fn = self.loss_H
         optimizer = torch.optim.SGD(self.NN.parameters(), lr=self.learning_rate)
         loss_values = []
         for epoch in range(self.num_epochs):
-            for X, y in self.train_dataloader:
-                # zero the parameter gradients
+            for X, y in self.train_dataloader: # FIX THE DATALOADER
+                # Zero all the parameter gradients
                 optimizer.zero_grad()
-                # forward + backward + optimize
                 pred = self.NN(X)
                 loss = loss_fn(pred, y.unsqueeze(-1))
-                loss_values.append(loss.item())
+                loss_values.append(loss)
                 loss.backward()
                 optimizer.step()
         step = np.arange(0, len(loss_values), 1)
@@ -80,6 +93,14 @@ class FunctionApproximator():
         plt.xlabel("Epochs")
         plt.ylabel("Loss")
         plt.show()
+    
+    def loss_G(self, output, target): # FIX THIS
+        loss = torch.mean((output - target)**2 + torch.sum(self.X_inner)**2)
+        return loss
+    
+    def loss_H(self, output, target): # FIX THIS
+        loss = torch.mean((output - target)**2 + torch.sum(self.X_inner)**2)
+        return loss
     
     def approximate_function(self): 
         def f(x,y):

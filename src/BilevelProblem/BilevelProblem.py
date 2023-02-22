@@ -42,7 +42,7 @@ class BilevelProblem:
     if (self.outer_grad1 is None) or (self.outer_grad2 is None) or (self.inner_grad22 is None) or (self.inner_grad12 is None):
       raise AttributeError("You must specify each of the necessary gradients")
     if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff")  or (self.method is None):
-        raise ValueError("Invalid method for solving the bilevel problem")
+      raise ValueError("Invalid method for solving the bilevel problem")
 
 
   def optimize(self, x0, y0, maxiter=100, step=0.1):
@@ -65,7 +65,7 @@ class BilevelProblem:
     x_new = x0
     iters = [x_new]
     while n_iters < maxiter and converged is False:
-      x_old = x_new#.copy()
+      x_old = x_new.copy()
       x_new = self.find_x_new(x_old, step)
       converged = self.check_convergence()
       iters.append(x_new)
