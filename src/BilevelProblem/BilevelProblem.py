@@ -1,15 +1,16 @@
-"""
-The BilevelProblem object instanciates the bilevel problem.
-"""
 import numpy as np
 import matplotlib.pyplot as plt
 import FunctionApproximator
 
+
 class BilevelProblem:
+  """
+  The BilevelProblem object instanciates the bilevel problem.
+  """
 
   def __init__(self, outer_objective, inner_objective, method, outer_grad1=None, outer_grad2=None, inner_grad22=None, inner_grad12=None, X_outer=None, y_outer=None, X_inner=None, y_inner=None):
     """
-    Required inputs inner and outer level objectives of the bilevel problem.
+    Init method.
       param inner_objective: inner level objective function
       param outer_objective: outer level objective function
       param outer_grad1: gradient wrt first variable of the outer objective
@@ -44,7 +45,6 @@ class BilevelProblem:
     if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff")  or (self.method is None):
       raise ValueError("Invalid method for solving the bilevel problem")
 
-
   def optimize(self, x0, y0, maxiter=100, step=0.1):
     """
     Find the optimal solution.
@@ -74,49 +74,36 @@ class BilevelProblem:
 
   def find_x_new(self, x_old, step):
     """
-    Find the optimal solution.
-      param x0: initial value for inner variable x
-      param y0: initial value for outer variable x
+    Find the next value in gradient descent.
+      param x_old: old value of the outer variable x
+      param step: stepsize for gradient descent
     """
     if self.method=="implicit_diff":
-      # Get y*(x) the argmin of the inner objective g(x,y)
-      # Get Jy*(x) the Jacobian
-      # Compute the gradient of the outer objective L(x)=f(x,y*(x))
-      # Compute the next iterate x_{k+1} = x_k - grad L(x)
-      # Compute the Hessian of g(x,y*(x))
+      # 1) Get y*(x) the argmin of the inner objective g(x,y)
       y_opt = -x_old
-      Jac = -1#(-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
-      grad = self.outer_grad1(x_old,y_opt) + Jac * self.outer_grad2(x_old,y_opt)#Jac.T * self.outer_grad2(x_old,y_opt)
-      #print(x_old, self.outer_grad1(x_old,y_opt), Jac, Jac * self.outer_grad2(x_old,y_opt))
+      # 2) Get Jy*(x) the Jacobian
+      Jac = (-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
+      # 3) Compute grad L(x): the gradient of L(x) wrt x
+      grad = self.outer_grad1(x_old,y_opt) + Jac.T * self.outer_grad2(x_old,y_opt)
+      # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
       x_new = x_old-step*grad
     elif self.method=="neural_implicit_diff":
-      # Fit a neural network to y*_x: w -> y*_x(w)
-      # Get y_k the arg min of y*_{x_k} where x_k is the current x
-      # Fit a neural network to A^{-T} H f(x_k, _): w -> A^{-T} H f(x_k, w)
-      # Get the Jacobian of y*_{x_k} where x_k is the current x
-      # Compute the gradient of L(x) using the obtained y_k and the Jacobian
-      # Compute the next iterate x_{k+1} = x_k - grad L(x)
-      # Instanciate a function approximator with the training data.
-      # Instanciate a function approximator with the training data.
-      
+      # 1) Find a function that approximates h*(x)
       NN_h = FunctionApproximator()
       NN_h.load_data(self.X_inner, self.y_inner)
-      # Find a function that approximates the data.
-      NN_h.train()# Specify objective G
+      NN_h.train()
       h_star = NN_h.approximate_function()
-
-      # Get y_k the minimizer of h_star(y)
-
+      # 2) Get y_k the minimizer of h*(x_k)
+      # TODO
+      # 3) Find a function that approximates a*(x)
       NN_a = FunctionApproximator()
       NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
-      # Find a function that approximates the data.
-      NN_a.train()# Specify objective H
+      NN_a.train()
       a_star = NN_a.approximate_function()
-
-      # Compute the gradient of L(x) wrt x
+      # 4) Compute grad L(x): the gradient of L(x) wrt x
       grad = None
+      # 5) Compute the next iterate x_{k+1} = x_k - grad L(x)
       x_new = x_old-step*grad
-      x_new = None
     else:
       raise ValueError("Unkown method for solving a bilevel problem")   
     return x_new
@@ -128,6 +115,7 @@ class BilevelProblem:
     """
     return False
 
+  #TODO
   def visualize(self, intermediate_points, plot_x_lim=5, plot_y_lim=5, plot_nb_contours=50):
     """
     Plot the intermediate steps of bilevel optimization.
