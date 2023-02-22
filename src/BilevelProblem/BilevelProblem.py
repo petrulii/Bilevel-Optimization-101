@@ -45,21 +45,15 @@ class BilevelProblem:
     if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff")  or (self.method is None):
       raise ValueError("Invalid method for solving the bilevel problem")
 
-  def optimize(self, x0, y0, maxiter=100, step=0.1):
+  def optimize(self, x0, maxiter=100, step=0.1):
     """
     Find the optimal solution.
       param x0: initial value for inner variable x
       param y0: initial value for outer variable x
       param maxiter: maximum number of iterations
     """
-    if not isinstance(x0, (np.ndarray)):
-      raise TypeError("Invalid input type for x0, should be a numpy ndarray")
-    if not isinstance(y0, (np.ndarray)):
-      raise TypeError("Invalid input type for y0, should be a numpy ndarray")
-    if len(self.x0) < 1:
-      raise ValueError("x0 must have length > 0")
-    if len(self.y0) < 1:
-      raise ValueError("y0 must have length > 0")
+    if not isinstance(x0, (np.ndarray, int, float)):
+      raise TypeError("Invalid input type for x0, should be a numpy ndarray or a number")
     n_iters = 0
     converged = False
     x_new = x0
@@ -91,14 +85,14 @@ class BilevelProblem:
       # 1) Find a function that approximates h*(x)
       NN_h = FunctionApproximator()
       NN_h.load_data(self.X_inner, self.y_inner)
-      NN_h.train()
+      NN_h.train(x_k=x_old)
       h_star = NN_h.approximate_function()
       # 2) Get y_k the minimizer of h*(x_k)
       # TODO
       # 3) Find a function that approximates a*(x)
       NN_a = FunctionApproximator()
       NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
-      NN_a.train()
+      NN_a.train(h_k=h_star)
       a_star = NN_a.approximate_function()
       # 4) Compute grad L(x): the gradient of L(x) wrt x
       grad = None
