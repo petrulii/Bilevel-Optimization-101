@@ -1,6 +1,7 @@
 import numpy as np
+from utils import plot_loss
 import matplotlib.pyplot as plt
-import FunctionApproximator
+from FunctionApproximator.FunctionApproximator import FunctionApproximator
 
 
 class BilevelProblem:
@@ -85,18 +86,16 @@ class BilevelProblem:
       # 1) Find a function that approximates h*(x)
       NN_h = FunctionApproximator()
       NN_h.load_data(self.X_inner, self.y_inner)
-      NN_h.train(x_k=x_old)
-      h_star = NN_h.approximate_function()
-      # 2) Get y_k the minimizer of h*(x_k)
-      # TODO
-      # 3) Find a function that approximates a*(x)
+      h_star, loss_values = NN_h.train(x_k=x_old)
+      plot_loss(loss_values)
+      # 2) Find a function that approximates a*(x)
       NN_a = FunctionApproximator()
       NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
-      NN_a.train(h_k=h_star)
-      a_star = NN_a.approximate_function()
-      # 4) Compute grad L(x): the gradient of L(x) wrt x
-      grad = None
-      # 5) Compute the next iterate x_{k+1} = x_k - grad L(x)
+      a_star, loss_values = NN_a.train(self.inner_grad22, self.outer_grad2, x_k=x_old, h_k=h_star)
+      plot_loss(loss_values)
+      # 3) Compute grad L(x): the gradient of L(x) wrt x
+      grad = 0
+      # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
       x_new = x_old-step*grad
     else:
       raise ValueError("Unkown method for solving a bilevel problem")   

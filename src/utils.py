@@ -33,3 +33,15 @@ def plot_2D_functions(f1, f2, plot_x_lim=10, plot_y_lim=10, plot_nb_contours=10)
     ax2.set_ylabel("Feature #1")
     fig.show()
     fig.savefig("figures/2D_function_approximation.png")
+
+def plot_loss(loss_values):
+    """
+    Plot the loss value over iterations.
+    """
+    step = np.arange(0, len(loss_values), 1)
+    fig, ax = plt.subplots(figsize=(6,4))
+    plt.plot(step, loss_values)
+    plt.title("Step-wise Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.show()
