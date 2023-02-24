@@ -57,9 +57,9 @@ class FunctionApproximator():
 			for epoch in range(num_epochs):
 				for X_i, y_i in self.inner_dataloader:
 					# Zero all the parameter gradients
-					#optimizer.zero_grad()
+					optimizer.zero_grad()
 					h_k = self.approximate_function()
-					loss = self.loss_G(x_k, h_k, X_i, y_i)#y_i.unsqueeze(-1)
+					loss = self.loss_G(x_k, h_k, X_i, y_i)
 					loss_values.append(loss.detach().numpy())
 					loss.backward()
 					optimizer.step()
@@ -71,7 +71,7 @@ class FunctionApproximator():
 			for epoch in range(num_epochs):
 				for i, ((X_i, y_i), (X_o, y_o)) in enumerate(zip(self.inner_dataloader, self.outer_dataloader)): # FIX THE DATALOADER
 					# Zero all the parameter gradients
-					#optimizer.zero_grad()
+					optimizer.zero_grad()
 					a_k = self.approximate_function()
 					loss = self.loss_H(x_k, h_k, a_k, inner_grad22, outer_grad2, X_i, y_i, X_o, y_o)
 					loss_values.append(loss.detach().numpy())
@@ -100,12 +100,12 @@ class FunctionApproximator():
 		# Here pred_a is a set of predictions a(w) for a set of w in an idd sample from p(w)
 		aT_in = torch.transpose(a_k(X_i),0,1)
 		hessian = inner_grad22(x_k, h_k, X_i, y_i)
-		aT_hessian = torch.matmul(aT_in, hessian)
+		aT_hessian = torch.matmul(aT_in.double(), hessian.double())
 		a_in = a_k(X_i)
 		aT_out = torch.transpose(a_k(X_o),0,1)
 		grad = outer_grad2(x_k, h_k, X_o, y_o)
 		# Umm there should be no minus here but if it's not there it doesn't converge :(
-		return -((1/2)*torch.mean(torch.matmul(aT_hessian, a_in))+(1/2)*torch.mean(torch.matmul(aT_out,grad)))
+		return (1/2)*torch.mean(torch.matmul(aT_hessian.double(), a_in.double()))+(1/2)*torch.mean(torch.matmul(aT_out.double(),grad.double()))
 
 	def approximate_function(self): 
 		"""
@@ -153,5 +153,5 @@ class NeuralNetwork(nn.Module):
 		x = torch.relu(self.layer_1(x))
 		x = torch.tanh(self.layer_2(x))
 		x = torch.tanh(self.layer_3(x))
-		x = torch.tanh(self.layer_4(x))
+		x = torch.exp(self.layer_4(x))
 		return x

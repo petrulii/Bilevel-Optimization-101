@@ -38,7 +38,7 @@ ig12 = lambda x, h, X_in, y_in: (h(X_in)).detach().numpy() * 2
 
 bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="neural_implicit_diff", outer_grad1=og1, outer_grad2=og2, inner_grad22=ig22, inner_grad12=ig12, X_outer=X_val, y_outer=y_val, X_inner=X_train, y_inner=y_train)
 # Optimize using classical implicit differention.
-x0 = np.array([0])
-x_opt, iters, n_iters = bp.optimize(x0, maxiter=2, step=0.1)
+x0 = np.array([[1.]])
+x_opt, iters, n_iters = bp.optimize(x0, maxiter=10, step=0.1)
 print("Argmin of the outer objective:", x_opt)
 print("Number of iterations:", n_iters)
