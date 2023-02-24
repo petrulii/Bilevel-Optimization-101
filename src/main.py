@@ -25,26 +25,16 @@ print("True coeficients:", coef)
 #ax.scatter(X_train[:,0], X_train[:,1], y_train, marker='.')
 #plt.show()
 
-def L2_norm(h, x, sample_size=10):
-    """
-    Returns an approximation of L2 function space norm
-        param h: an L2 function
-        param x: a random variable
-    """
-    sample = np.random.choice(X_train, size=sample_size)
-    return np.mean(sample**2)
-
 fo = lambda x, h, w, v: (1/m_v)*np.sum(np.array([((1/2)*np.sum(h(w)-v)**2+x*np.sum(h)**2) for (w, v) in (X_val, y_val)]))
 fi = lambda x, h, w, v: (1/m_t)*np.sum(np.array([((1/2)*np.sum(h(w)-v)**2+x*np.sum(h)**2) for (w, v) in (X_train, y_train)]))
 # Gradient wrt x of f
-og1 = lambda x, h, X_out, y_out: L2_norm(h, x)
+og1 = lambda x, h, X_out, y_out: np.mean(np.power((h(X_out[np.random.randint(X_out.shape[0], size=64), :])).detach().numpy(),2))
 # Gradient wrt h of f
-og2 = lambda x, h, X_out, y_out: torch.matmul(torch.transpose(X_out, 0, 1), (h(X_out) - y_out)) + torch.matmul(h(X_out),torch.mul(x,2.0))
-# Gradient wrt h of gradient wrt h of g
-ig22 = lambda x, h, X_in, y_in: X_in.T @ X_in + x*2*np.identity(n)
+og2 = lambda x, h, X_out, y_out: (h(X_out) - y_out) + torch.mul(h(X_out),torch.mul(x,2.0))
+# Hessian wrt h of g
+ig22 = lambda x, h, X_in, y_in: torch.eye(len(y_in)) + torch.mul(torch.eye(len(y_in)),torch.mul(x,2.0))
 # Gradient wrt x of gradient wrt h of g
-ig12 = lambda x, h, X_in, y_in: 2*h(X_in)
-
+ig12 = lambda x, h, X_in, y_in: (h(X_in)).detach().numpy() * 2
 
 bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="neural_implicit_diff", outer_grad1=og1, outer_grad2=og2, inner_grad22=ig22, inner_grad12=ig12, X_outer=X_val, y_outer=y_val, X_inner=X_train, y_inner=y_train)
 # Optimize using classical implicit differention.

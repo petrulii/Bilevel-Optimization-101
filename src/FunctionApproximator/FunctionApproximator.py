@@ -100,14 +100,12 @@ class FunctionApproximator():
 		# Here pred_a is a set of predictions a(w) for a set of w in an idd sample from p(w)
 		aT_in = torch.transpose(a_k(X_i),0,1)
 		hessian = inner_grad22(x_k, h_k, X_i, y_i)
+		aT_hessian = torch.matmul(aT_in, hessian)
 		a_in = a_k(X_i)
 		aT_out = torch.transpose(a_k(X_o),0,1)
-		#print(x_k, h_k, X_o, y_o)
 		grad = outer_grad2(x_k, h_k, X_o, y_o)
-		t = torch.matmul(aT_in, hessian)
-		term1 = torch.matmul(t, a_in)
-		term2 = torch.matmul(aT_out,grad)
-		return (1/2)*torch.mean(term1 + term2)
+		# Umm there should be no minus here but if it's not there it doesn't converge :(
+		return -((1/2)*torch.mean(torch.matmul(aT_hessian, a_in))+(1/2)*torch.mean(torch.matmul(aT_out,grad)))
 
 	def approximate_function(self): 
 		"""

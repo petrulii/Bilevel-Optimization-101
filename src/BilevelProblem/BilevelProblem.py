@@ -87,19 +87,38 @@ class BilevelProblem:
       NN_h = FunctionApproximator()
       NN_h.load_data(self.X_inner, self.y_inner)
       h_star, loss_values = NN_h.train(x_k=x_old)
-      plot_loss(loss_values)
+      #plot_loss(loss_values)
       # 2) Find a function that approximates a*(x)
       NN_a = FunctionApproximator()
       NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
       a_star, loss_values = NN_a.train(self.inner_grad22, self.outer_grad2, x_k=x_old, h_k=h_star)
-      plot_loss(loss_values)
+      #plot_loss(loss_values)
+      #exit(0)
       # 3) Compute grad L(x): the gradient of L(x) wrt x
-      grad = 0
+      m_in = self.X_inner.shape[0]
+      X_in = self.X_inner[np.random.randint(m_in, size=64), :]
+      m_out = self.X_outer.shape[0]
+      X_out = self.X_outer[np.random.randint(m_out, size=64), :]
+      term1 = self.outer_grad1(x_old, h_star, X_out, None)
+      term2 = self.B_star(x_old, h_star, X_in, None)# dim here (64,1)
+      print(term2.shape)
+      term3 = a_star(x_old).detach().numpy()
+      grad = term1 + term2 @ term3
       # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
       x_new = x_old-step*grad
     else:
       raise ValueError("Unkown method for solving a bilevel problem")   
     return x_new
+
+  def B_star(self, x_old, h_star, X_in, y_in):
+    """
+    Computes the matrix B*(x).
+    """
+    #print("HERE")
+    #print(X_in)
+    #print(h_star)
+    #print((h_star(X_in)).detach().numpy())
+    return self.inner_grad12(x_old, h_star, X_in, y_in)
 
   #TODO
   def check_convergence(self):
