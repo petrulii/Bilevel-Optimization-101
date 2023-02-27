@@ -1,5 +1,7 @@
+import torch
 import numpy as np
 from utils import plot_loss
+from utils import sample
 import matplotlib.pyplot as plt
 from FunctionApproximator.FunctionApproximator import FunctionApproximator
 
@@ -9,7 +11,7 @@ class BilevelProblem:
   The BilevelProblem object instanciates the bilevel problem.
   """
 
-  def __init__(self, outer_objective, inner_objective, method, outer_grad1=None, outer_grad2=None, inner_grad22=None, inner_grad12=None, X_outer=None, y_outer=None, X_inner=None, y_inner=None):
+  def __init__(self, outer_objective, inner_objective, method, outer_grad1=None, outer_grad2=None, inner_grad22=None, inner_grad12=None, X_outer=None, y_outer=None, X_inner=None, y_inner=None, batch_size=64):
     """
     Init method.
       param inner_objective: inner level objective function
@@ -34,6 +36,12 @@ class BilevelProblem:
     self.y_outer = y_outer
     self.X_inner = X_inner
     self.y_inner = y_inner
+    self.batch_size = batch_size
+    if self.method=="neural_implicit_diff":
+      self.NN_h = FunctionApproximator()
+      self.NN_h.load_data(self.X_inner, self.y_inner)
+      self.NN_a = FunctionApproximator()
+      self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
 
   def __input_check__(self):
     """
@@ -46,80 +54,74 @@ class BilevelProblem:
     if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff")  or (self.method is None):
       raise ValueError("Invalid method for solving the bilevel problem")
 
-  def optimize(self, x0, maxiter=100, step=0.1):
+  def optimize(self, mu0, maxiter=100, step=0.1):
     """
     Find the optimal solution.
-      param x0: initial value for inner variable x
+      param mu0: initial value for inner variable x
       param y0: initial value for outer variable x
       param maxiter: maximum number of iterations
     """
-    if not isinstance(x0, (np.ndarray, int, float)):
-      raise TypeError("Invalid input type for x0, should be a numpy ndarray or a number")
+    if not isinstance(mu0, (torch.Tensor)):
+      raise TypeError("Invalid input type for mu0, should be a tensor")
     n_iters = 0
     converged = False
-    x_new = x0
-    iters = [x_new]
+    mu_new = mu0
+    iters = [mu_new]
     while n_iters < maxiter and converged is False:
-      x_old = x_new.copy()
-      x_new = self.find_x_new(x_old, step)
-      print("New x_new:", x_new, "x_old:", x_old)
-      #exit(0)
-      #converged = self.check_convergence()
-      iters.append(x_new)
+      mu_old = mu_new.clone()
+      mu_new = self.find_mu_new(mu_old, step)
+      print("New mu_new:", mu_new, "mu_old:", mu_old)
+      iters.append(mu_new)
       n_iters += 1
-    return x_new, iters, n_iters
+    return mu_new, iters, n_iters
 
-  def find_x_new(self, x_old, step):
+  def find_mu_new(self, mu_old, step):
     """
     Find the next value in gradient descent.
-      param x_old: old value of the outer variable x
+      param mu_old: old value of the outer variable x
       param step: stepsize for gradient descent
     """
     if self.method=="implicit_diff":
       # 1) Get y*(x) the argmin of the inner objective g(x,y)
-      y_opt = -x_old
+      y_opt = -mu_old
       # 2) Get Jy*(x) the Jacobian
-      Jac = (-np.invert(self.inner_grad22(x_old,y_opt))) * (self.inner_grad12(x_old,y_opt))
+      Jac = (-np.invert(self.inner_grad22(mu_old,y_opt))) * (self.inner_grad12(mu_old,y_opt))
       # 3) Compute grad L(x): the gradient of L(x) wrt x
-      grad = self.outer_grad1(x_old,y_opt) + Jac.T * self.outer_grad2(x_old,y_opt)
-      # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
-      x_new = x_old-step*grad
+      grad = self.outer_grad1(mu_old,y_opt) + Jac.T * self.outer_grad2(mu_old,y_opt)
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
-      NN_h = FunctionApproximator()
-      NN_h.load_data(self.X_inner, self.y_inner)
-      h_star, loss_values = NN_h.train(x_k=x_old, num_epochs = 10)
+      h_star, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
       #plot_loss(loss_values)
       # 2) Find a function that approximates a*(x)
-      NN_a = FunctionApproximator()
-      NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
-      a_star, loss_values = NN_a.train(self.inner_grad22, self.outer_grad2, x_k=x_old, h_k=h_star, num_epochs = 10)
+      a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
       #plot_loss(loss_values)
       # 3) Compute grad L(x): the gradient of L(x) wrt x
-      m_in = self.X_inner.shape[0]
-      X_in = self.X_inner[np.random.randint(m_in, size=64), :]
-      m_out = self.X_outer.shape[0]
-      X_out = self.X_outer[np.random.randint(m_out, size=64), :]
-      term1 = self.outer_grad1(x_old, h_star, X_out, None)
-      term2 = self.B_star(x_old, h_star, X_in, None)# dim here (64,1)
-      term3 = a_star(X_in).detach().numpy()# umm sorry what is happening here
+      X_in = sample(self.X_inner, self.batch_size)
+      X_out = sample(self.X_outer, self.batch_size)
+      term1 = self.outer_grad1(mu_old, h_star, X_out, None)
+      term2 = self.B_star(mu_old, h_star, X_in, None)
+      term3 = a_star(X_in)
       grad = term1 + term2.T @ term3
-      # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
-      x_new = x_old-step*grad
     else:
-      raise ValueError("Unkown method for solving a bilevel problem")   
-    return x_new
+      raise ValueError("Unkown method for solving a bilevel problem")
+    # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
+    mu_new = mu_old-step*grad
+    # 5) Enforce x positive
+    mu_new = torch.full((1,1), 0.) if mu_new[0,0]<0 else mu_new
+    # Remove the associated autograd
+    mu_new = mu_new.detach()
+    return mu_new
 
-  def B_star(self, x_old, h_star, X_in, y_in):
+  def B_star(self, mu_old, h_star, X_in, y_in):
     """
     Computes the matrix B*(x).
     """
-    return self.inner_grad12(x_old, h_star, X_in, y_in)
+    return self.inner_grad12(mu_old, h_star, X_in, y_in)
 
   #TODO
   def check_convergence(self):
     """
-    Checks convergence of the alorithm based on chosen convergence criateria.
+    Checks convergence of the algorithm based on chosen convergence criateria.
     """
     return False
 

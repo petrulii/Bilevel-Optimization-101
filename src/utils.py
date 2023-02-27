@@ -38,6 +38,7 @@ def plot_loss(loss_values):
     """
     Plot the loss value over iterations.
     """
+    loss_values = [tensor.item() for tensor in loss_values]
     step = np.arange(0, len(loss_values), 1)
     fig, ax = plt.subplots(figsize=(6,4))
     plt.plot(step, loss_values)
@@ -45,3 +46,11 @@ def plot_loss(loss_values):
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.show()
+
+def sample(X, n):
+    """
+    Take a uniform sample of size n from tensor X.
+    """
+    probas = torch.full([n], 1/n)
+    index = (probas.multinomial(num_samples=n, replacement=True)).to(dtype=torch.long)
+    return X[index]
