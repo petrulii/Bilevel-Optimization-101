@@ -92,7 +92,6 @@ class FunctionApproximator():
 		a_in = a_k(X_i)
 		aT_out = torch.transpose(a_k(X_o),0,1)
 		grad = outer_grad2(mu_k, h_k, X_o, y_o)
-		# Umm there should be no minus here but if it's not there it doesn't converge :(
 		return (1/2)*torch.mean(torch.matmul(aT_hessian.double(), a_in.double()))+(1/2)*torch.mean(torch.matmul(aT_out.double(),grad.double()))
 
 

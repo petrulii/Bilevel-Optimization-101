@@ -6,6 +6,7 @@ from torch.utils.data import random_split
 from BilevelProblem.BilevelProblem import BilevelProblem
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import Ridge
 
 torch.manual_seed(0)
 random.seed(0)
@@ -33,6 +34,9 @@ print("y training labels:", y_train[1:5])
 #ax.scatter(X_train[:,0], X_train[:,1], y_train, marker='.')
 #plt.show()
 
+
+############ NEURAL IMPLICIT DIFFERENTIATION ############
+
 fo = lambda mu, h, w, v: None
 fi = lambda mu, h, w, v: None
 # Gradient wrt mu of f
@@ -47,7 +51,29 @@ ig12 = lambda mu, h, X_in, y_in: h(X_in) * 2
 # Optimize using neural implicit differention
 bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="neural_implicit_diff", outer_grad1=og1, outer_grad2=og2, inner_grad22=ig22, inner_grad12=ig12, X_outer=X_val, y_outer=y_val, X_inner=X_train, y_inner=y_train)
 mu0 = torch.full((1,1), 1.)
-mu_opt, iters, n_iters = bp.optimize(mu0, maxiter=20, step=0.1)
+mu_opt, iters, n_iters = bp.optimize(mu0, maxiter=100, step=0.1)
+# Show results
+print("Argmin of the outer objective:", mu_opt)
+print("Number of iterations:", n_iters)
+
+
+############ CLASSICAL IMPLICIT DIFFERENTIATION ############
+
+def find_h_star(X_in, y_in, mu_old):
+    """
+    Find a closed form solution of h_star for a fixed mu.
+      param mu_old: old value of the outer variable
+    """
+    mu = (mu_old.cpu().detach().numpy())[0,0]
+    clf = Ridge(alpha=mu, solver='cholesky')
+    clf.fit(X_in.cpu().detach().numpy(), y_in.cpu().detach().numpy())
+    h_star = lambda X: X @ torch.from_numpy(clf.coef_.T)
+    return h_star
+
+# Optimize using neural implicit differention
+bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="implicit_diff", outer_grad1=og1, outer_grad2=og2, inner_grad22=ig22, inner_grad12=ig12, find_h_star=find_h_star, X_outer=X_val, y_outer=y_val, X_inner=X_train, y_inner=y_train)
+mu0 = torch.full((1,1), 1.)
+mu_opt, iters, n_iters = bp.optimize(mu0, maxiter=100, step=0.1)
 # Show results
 print("Argmin of the outer objective:", mu_opt)
 print("Number of iterations:", n_iters)
