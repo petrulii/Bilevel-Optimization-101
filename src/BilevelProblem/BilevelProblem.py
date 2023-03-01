@@ -88,14 +88,14 @@ class BilevelProblem:
     """
     if self.method=="implicit_diff":
       X_in, y_in = self.X_inner, self.y_inner
-      X_out, y_out = X_in, y_in#self.X_outer, self.y_outer
-      # 1) Find a function that approximates h*(x) the argmin of the inner objective G(x,y)
-      h_star = self.find_h_star(X_in, y_in, mu_old)
-      # 2) Get Jh*(x) the Jacobian
+      X_out, y_out = self.X_outer, self.y_outer
+      # 1) Find a parameter vector h* the argmin of the inner objective G(mu,h)
+      h_star = self.find_h_star(self.X_inner, self.y_inner, mu_old)
+      # 2) Get Jh* the Jacobian of the inner objective wrt h
       Jac = (-1*torch.linalg.inv(self.inner_grad22(mu_old, h_star, X_in, y_in))) @ (self.inner_grad12(mu_old, h_star, X_in, y_in))
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
       term1 = self.outer_grad1(mu_old, h_star, X_out, y_out)
-      term2 = torch.transpose(Jac,0,1) @ self.outer_grad2(mu_old, h_star, X_out, y_out)# 1*700 @ 300*1
+      term2 = torch.transpose(Jac,0,1) @ self.outer_grad2(mu_old, h_star, X_out, y_out)
       grad = (term1 + term2)
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
