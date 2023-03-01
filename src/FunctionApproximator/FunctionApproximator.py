@@ -41,7 +41,7 @@ class FunctionApproximator():
 			param mu_k: current mu_k used when approximating h*(x)
 			param h_k: current h*(x) used when approximating a*(x)
 			param num_epochs: number of training epochs
-			param learning_rate: learning rate
+			param learning_rate: learning rate for gradient descent
 		"""
 		optimizer = torch.optim.SGD(self.NN.parameters(), lr=learning_rate)
 		loss_values = []
