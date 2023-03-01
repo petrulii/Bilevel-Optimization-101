@@ -40,11 +40,11 @@ print("y training labels:", y_train[1:5])
 fo = lambda mu, h, w, v: None
 fi = lambda mu, h, w, v: None
 # Gradient wrt mu of f
-og1 = lambda mu, h, X_out, y_out: torch.mean(torch.pow(h(sample(X_out,batch)),2.0))
+og1 = lambda mu, h, X_out, y_out: torch.tensor([[0]])#torch.mean(torch.pow(h(sample(X_out,batch)),2.0))
 # Gradient wrt h of f
-og2 = lambda mu, h, X_out, y_out: (h(X_out) - y_out) + torch.mul(h(X_out),torch.mul(mu,2.0))
+og2 = lambda mu, h, X_out, y_out: (h(X_out) - y_out)# + torch.mul(h(X_out),torch.mul(mu,2.0))
 # Hessian wrt h of g
-ig22 = lambda mu, h, X_in, y_in: torch.eye(len(y_in)) + torch.mul(torch.eye(len(y_in)),torch.mul(mu,2.0))
+ig22 = lambda mu, h, X_in, y_in: torch.eye(len(y_in))# + torch.mul(torch.eye(len(y_in)),torch.mul(mu,2.0))
 # Gradient wrt mu of gradient wrt h of g
 ig12 = lambda mu, h, X_in, y_in: h(X_in) * 2
 
@@ -53,8 +53,8 @@ bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="neural_impli
 mu0 = torch.full((1,1), 1.)
 mu_opt, iters, n_iters = bp.optimize(mu0, maxiter=100, step=0.1)
 # Show results
-print("Argmin of the outer objective:", mu_opt)
-print("Number of iterations:", n_iters)
+print("neural_implicit_diff Argmin of the outer objective:", mu_opt)
+print("neural_implicit_diff Number of iterations:", n_iters)
 
 
 ############ CLASSICAL IMPLICIT DIFFERENTIATION ############
@@ -70,10 +70,19 @@ def find_h_star(X_in, y_in, mu_old):
     h_star = lambda X: X @ torch.from_numpy(clf.coef_.T)
     return h_star
 
+# Gradient wrt mu of f
+#og1 = lambda mu, h, X_out, y_out: torch.mean(torch.pow(h(sample(X_out,batch)),2.0))
+# Gradient wrt h of f
+#og2 = lambda mu, h, X_out, y_out: (h(X_out) - y_out) + torch.mul(h(X_out),torch.mul(mu,2.0))
+# Hessian wrt h of g
+#ig22 = lambda mu, h, X_in, y_in: X_in @ torch.transpose(X_in,0,1) + torch.mul(torch.eye(len(y_in)),torch.mul(mu,2.0))
+# Gradient wrt mu of gradient wrt h of g
+#ig12 = lambda mu, h, X_in, y_in: h(X_in) * 2
+
 # Optimize using neural implicit differention
 bp = BilevelProblem(outer_objective=fo, inner_objective=fi, method="implicit_diff", outer_grad1=og1, outer_grad2=og2, inner_grad22=ig22, inner_grad12=ig12, find_h_star=find_h_star, X_outer=X_val, y_outer=y_val, X_inner=X_train, y_inner=y_train)
-mu0 = torch.full((1,1), 1.)
+mu0 = torch.full((1,1), 0.2)
 mu_opt, iters, n_iters = bp.optimize(mu0, maxiter=100, step=0.1)
 # Show results
-print("Argmin of the outer objective:", mu_opt)
-print("Number of iterations:", n_iters)
+print("implicit_diff Argmin of the outer objective:", mu_opt)
+print("implicit_diff Number of iterations:", n_iters)

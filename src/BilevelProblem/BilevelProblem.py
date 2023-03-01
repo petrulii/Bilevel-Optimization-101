@@ -91,14 +91,12 @@ class BilevelProblem:
       X_out, y_out = X_in, y_in#self.X_outer, self.y_outer
       # 1) Find a function that approximates h*(x) the argmin of the inner objective G(x,y)
       h_star = self.find_h_star(X_in, y_in, mu_old)
-      # 2) Get Jy*(x) the Jacobian
-      Jac = (-torch.linalg.inv(self.inner_grad22(mu_old, h_star, X_in, y_in))) @ (self.inner_grad12(mu_old, h_star, X_in, y_in))
-      # 3) Compute grad L(x): the gradient of L(x) wrt x
-      term1 = self.outer_grad1(mu_old, h_star, X_out, y_out)# a scalar 1*1
-      #print(Jac.size())# Jacobian 700*1
-      #print((self.outer_grad2(mu_old, h_star, X_out, y_out)).size())# 300*1
+      # 2) Get Jh*(x) the Jacobian
+      Jac = (-1*torch.linalg.inv(self.inner_grad22(mu_old, h_star, X_in, y_in))) @ (self.inner_grad12(mu_old, h_star, X_in, y_in))
+      # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
+      term1 = self.outer_grad1(mu_old, h_star, X_out, y_out)
       term2 = torch.transpose(Jac,0,1) @ self.outer_grad2(mu_old, h_star, X_out, y_out)# 1*700 @ 300*1
-      grad = term1 + term2
+      grad = (term1 + term2)
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
       h_star, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
