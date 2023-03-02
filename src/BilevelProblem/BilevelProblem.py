@@ -1,9 +1,10 @@
 import math
+import time
 import torch
 import numpy as np
-from utils import plot_loss
-from utils import sample
 import matplotlib.pyplot as plt
+from utils import plot_2D_functions
+from utils import sample_X, sample_X_y
 from FunctionApproximator.FunctionApproximator import FunctionApproximator
 
 
@@ -39,10 +40,10 @@ class BilevelProblem:
     self.y_inner = y_inner
     self.batch_size = batch_size
     self.find_h_star = find_h_star
-    if self.method=="neural_implicit_diff":
-      self.NN_h = FunctionApproximator()
+    if self.method=="neural_implicit_diff" or self.method=="frankenstein":
+      self.NN_h = FunctionApproximator(function='a')
       self.NN_h.load_data(self.X_inner, self.y_inner)
-      self.NN_a = FunctionApproximator()
+      self.NN_a = FunctionApproximator(function='a')
       self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
     self.__input_check__()
 
@@ -56,7 +57,7 @@ class BilevelProblem:
       raise AttributeError("You must specify each of the necessary gradients")
     if (self.method == "implicit_diff")  and (self.find_h_star is None):
       raise AttributeError("You must specify the closed form solution of the inner problem for classical imp. diff.")
-    if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff")  or (self.method is None):
+    if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff" or self.method == "frankenstein")  or (self.method is None):
       raise ValueError("Invalid method for solving the bilevel problem")
 
   def optimize(self, mu0, maxiter=100, step=0.1):
@@ -68,17 +69,17 @@ class BilevelProblem:
     """
     if not isinstance(mu0, (torch.Tensor)):
       raise TypeError("Invalid input type for mu0, should be a tensor")
-    n_iters = 0
-    converged = False
     mu_new = mu0
-    iters = [mu_new]
-    while n_iters < maxiter and converged is False:
+    n_iters, iters, converged, times = 0, [mu_new], False, []
+    while n_iters < maxiter and not converged:
       mu_old = mu_new.clone()
-      mu_new = self.find_mu_new(mu_old, step)
+      start = time.time()
+      mu_new, h_star = self.find_mu_new(mu_old, step)
+      times.append(time.time() - start)
       converged = self.check_convergence(mu_old, mu_new)
       iters.append(mu_new)
       n_iters += 1
-    return mu_new, iters, n_iters
+    return mu_new, iters, n_iters, times, h_star
 
   def find_mu_new(self, mu_old, step):
     """
@@ -92,21 +93,39 @@ class BilevelProblem:
       # 1) Find a parameter vector h* the argmin of the inner objective G(mu,h)
       h_star = self.find_h_star(self.X_inner, self.y_inner, mu_old)
       # 2) Get Jh* the Jacobian of the inner objective wrt h
-      Jac = (-1*torch.linalg.inv(self.inner_grad22(mu_old, h_star, X_in, y_in))) @ (self.inner_grad12(mu_old, h_star, X_in, y_in))
+      Jac = -1*torch.linalg.solve((self.inner_grad22(mu_old, h_star, X_in, y_in)), (self.inner_grad12(mu_old, h_star, X_in, y_in)))
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
-      term1 = self.outer_grad1(mu_old, h_star, X_out, y_out)
-      term2 = torch.transpose(Jac,0,1) @ self.outer_grad2(mu_old, h_star, X_out, y_out)
-      grad = (term1 + term2)
+      grad = self.outer_grad1(mu_old, h_star, X_out, y_out) + Jac.T @ self.outer_grad2(mu_old, h_star, X_out, y_out)
+    elif self.method=="frankenstein":
+      X_in, y_in = self.X_inner, self.y_inner
+      X_out, y_out = self.X_outer, self.y_outer
+      # 1) Find a parameter vector h* the argmin of the inner objective G(mu,h)
+      h_star_vec = self.find_h_star(self.X_inner, self.y_inner, mu_old)
+      h_star = lambda x : x @ h_star_vec
+      # 2) Find a function that approximates a*(x)
+      a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
+      X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
+      # 3) Compute grad L(x): the gradient of L(x) wrt x
+      X_in = sample_X(self.X_inner, self.batch_size)
+      X_out = sample_X(self.X_outer, self.batch_size)
+      term1 = self.outer_grad1(mu_old, h_star, X_out, None)
+      term2 = self.B_star(mu_old, h_star, X_in, None)
+      term3 = a_star(X_in)
+      grad = term1 + term2.T @ term3
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
       h_star, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
       #plot_loss(loss_values)
       # 2) Find a function that approximates a*(x)
       a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
+      X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
+      #true_a_star = self.find_a_star(h_star, X_out, y_out)
+      #print("a_star:", a_star(X_out))
+      #print("true_a_star:", true_a_star)
       #plot_loss(loss_values)
       # 3) Compute grad L(x): the gradient of L(x) wrt x
-      X_in = sample(self.X_inner, self.batch_size)
-      X_out = sample(self.X_outer, self.batch_size)
+      X_in = sample_X(self.X_inner, self.batch_size)
+      X_out = sample_X(self.X_outer, self.batch_size)
       term1 = self.outer_grad1(mu_old, h_star, X_out, None)
       term2 = self.B_star(mu_old, h_star, X_in, None)
       term3 = a_star(X_in)
@@ -114,18 +133,25 @@ class BilevelProblem:
     else:
       raise ValueError("Unkown method for solving a bilevel problem")
     # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
+    #print("Gradient:", grad)
     mu_new = mu_old-step*grad
     # 5) Enforce x positive
     mu_new = torch.full((1,1), 0.) if mu_new[0,0]<0 else mu_new
     # Remove the associated autograd
     mu_new = mu_new.detach()
-    return mu_new
+    return mu_new, h_star
 
   def B_star(self, mu_old, h_star, X_in, y_in):
     """
     Computes the matrix B*(x).
     """
     return self.inner_grad12(mu_old, h_star, X_in, y_in)
+
+  def find_a_star(self, h, X_out, y_out):
+    """
+    Computes the matrix B*(x).
+    """
+    return -torch.mean(h(X_out) - y_out)
 
   def check_convergence(self, mu_old, mu_new):
     """

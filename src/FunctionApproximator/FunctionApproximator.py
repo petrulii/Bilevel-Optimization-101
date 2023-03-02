@@ -8,14 +8,19 @@ class FunctionApproximator():
 	An object to approximate an arbitrary function.
 	"""
 
-	def __init__(self, layer_sizes=[2, 10, 20, 10, 1], batch_size = 64):
+	def __init__(self, layer_sizes=[2, 10, 20, 10, 1], batch_size = 64, function='h'):
 		"""
 		Init method.
 			param layer_sizes: sizes of the layers of the network used to approximate functions
 			param batch_size: size of training batches
 		"""
 		self.batch_size = batch_size
-		self.NN = NeuralNetwork(layer_sizes)
+		if function == 'h':
+			self.NN = NeuralNetwork_h()
+		elif function == 'a':
+			self.NN = NeuralNetwork_a(layer_sizes)
+		else:
+			raise AttributeError("You must specify the function that the network will approximate.")
 
 	def load_data(self, X_inner, y_inner, X_outer=None, y_outer=None):
 		"""
@@ -62,12 +67,12 @@ class FunctionApproximator():
 		elif not (mu_k is None and h_k is None and self.X_inner is None and self.y_inner is None and self.X_outer is None and self.y_outer is None):
 			# Set the loss H with a fixed h*(x) as the objective function
 			for epoch in range(num_epochs):
-				for i, ((X_i, y_i), (X_o, y_o)) in enumerate(zip(self.inner_dataloader, self.outer_dataloader)): # FIX THE DATALOADER
+				for i, ((X_i, y_i), (X_o, y_o)) in enumerate(zip(self.inner_dataloader, self.outer_dataloader)):
 					# Zero all the parameter gradients
-					optimizer.zero_grad()
 					a_k = self.NN
 					loss = self.loss_H(mu_k, h_k, a_k, inner_grad22, outer_grad2, X_i, y_i, X_o, y_o)
 					loss_values.append(loss.float())
+					optimizer.zero_grad()
 					loss.backward()
 					optimizer.step()
 			return self.NN, loss_values
@@ -95,14 +100,14 @@ class FunctionApproximator():
 		return (1/2)*torch.mean(torch.matmul(aT_hessian.double(), a_in.double()))+(1/2)*torch.mean(torch.matmul(aT_out.double(),grad.double()))
 
 
-class NeuralNetwork(nn.Module):
+class NeuralNetwork_a(nn.Module):
 	"""
-	A neural network to approximate an arbitrary function.
+	A neural network to approximate the function a* for neural implicit differentiation.
 	"""
 	def __init__(self, layer_sizes):
 		if len(layer_sizes) != 5:
 			raise ValueError("The network has five layers, you must give a list with five integer values")
-		super(NeuralNetwork, self).__init__()
+		super(NeuralNetwork_a, self).__init__()
 		self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
 		nn.init.kaiming_uniform_(self.layer_1.weight)
 		self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
@@ -118,6 +123,20 @@ class NeuralNetwork(nn.Module):
 		x = self.layer_4(x)
 		return x
 
+class NeuralNetwork_h(nn.Module):
+	"""
+	A neural network to approximate the function h* for neural implicit differentiation.
+	"""
+	def __init__(self):
+		super(NeuralNetwork_h, self).__init__()
+		self.layer_1 = nn.Linear(2, 2)
+		nn.init.kaiming_uniform_(self.layer_1.weight)
+		self.layer_2 = nn.Linear(2, 1)
+
+	def forward(self, x):
+		x = self.layer_1(x)
+		x = self.layer_2(x)
+		return x
 
 class Data(Dataset):
 	"""
