@@ -1,9 +1,6 @@
 import math
 import time
 import torch
-import numpy as np
-import matplotlib.pyplot as plt
-from utils import plot_2D_functions
 from utils import sample_X, sample_X_y
 from FunctionApproximator.FunctionApproximator import FunctionApproximator
 
@@ -13,38 +10,40 @@ class BilevelProblem:
   The BilevelProblem object instanciates the bilevel problem.
   """
 
-  def __init__(self, outer_objective, inner_objective, method, outer_grad1=None, outer_grad2=None, inner_grad22=None, inner_grad12=None, find_h_star=None, X_outer=None, y_outer=None, X_inner=None, y_inner=None, batch_size=64):
+  def __init__(self, outer_objective, inner_objective, method, data, gradients, find_theta_star=None, batch_size=64):
     """
     Init method.
       param inner_objective: inner level objective function
       param outer_objective: outer level objective function
-      param outer_grad1: gradient wrt first variable of the outer objective
-      param outer_grad2: gradient wrt second variable of the outer objective
-      param inner_grad22: hessian wrt second variable of the inner objective
-      param inner_grad12: hessian wrt first and second variables of the inner objective
       param X_outer: feature data for the outer objective
       param y_outer: label data for the outer objective
       param X_inner: feature data for the inner objective
       param y_inner: label data for the inner objective
+      param outer_grad1: gradient wrt first variable of the outer objective
+      param outer_grad2: gradient wrt second variable of the outer objective
+      param inner_grad22: hessian wrt second variable of the inner objective
+      param inner_grad12: hessian wrt first and second variables of the inner objective
+      param find_theta_star: method to find the optimal parameter vector for class. imp. diff.
     """
     self.outer_objective = outer_objective
     self.inner_objective = inner_objective
     self.method = method
-    self.outer_grad1 = outer_grad1
-    self.outer_grad2 = outer_grad2
-    self.inner_grad22 = inner_grad22
-    self.inner_grad12 = inner_grad12
-    self.X_outer = X_outer
-    self.y_outer = y_outer
-    self.X_inner = X_inner
-    self.y_inner = y_inner
-    self.batch_size = batch_size
-    self.find_h_star = find_h_star
-    if self.method=="neural_implicit_diff" or self.method=="frankenstein":
-      self.NN_h = FunctionApproximator(function='a')
+    self.X_outer = data[0]
+    self.y_outer = data[1]
+    self.X_inner = data[2]
+    self.y_inner = data[3]
+    self.outer_grad1 = gradients[0]
+    self.outer_grad2 = gradients[1]
+    self.inner_grad22 = gradients[2]
+    self.inner_grad12 = gradients[3]
+    if self.method=="neural_implicit_diff":
+      self.NN_h = FunctionApproximator(function='h')
       self.NN_h.load_data(self.X_inner, self.y_inner)
       self.NN_a = FunctionApproximator(function='a')
       self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
+    elif self.method=="implicit_diff":
+      self.find_theta_star = find_theta_star
+    self.batch_size = batch_size
     self.__input_check__()
 
   def __input_check__(self):
@@ -55,9 +54,9 @@ class BilevelProblem:
       raise AttributeError("You must specify the inner and outer objectives")
     if (self.outer_grad1 is None) or (self.outer_grad2 is None) or (self.inner_grad22 is None) or (self.inner_grad12 is None):
       raise AttributeError("You must specify each of the necessary gradients")
-    if (self.method == "implicit_diff")  and (self.find_h_star is None):
+    if (self.method == "implicit_diff")  and (self.find_theta_star is None):
       raise AttributeError("You must specify the closed form solution of the inner problem for classical imp. diff.")
-    if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff" or self.method == "frankenstein")  or (self.method is None):
+    if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff"):
       raise ValueError("Invalid method for solving the bilevel problem")
 
   def optimize(self, mu0, maxiter=100, step=0.1):
@@ -91,49 +90,28 @@ class BilevelProblem:
       X_in, y_in = self.X_inner, self.y_inner
       X_out, y_out = self.X_outer, self.y_outer
       # 1) Find a parameter vector h* the argmin of the inner objective G(mu,h)
-      h_star = self.find_h_star(self.X_inner, self.y_inner, mu_old)
+      theta_star = self.find_theta_star(self.X_inner, self.y_inner, mu_old)
       # 2) Get Jh* the Jacobian of the inner objective wrt h
-      Jac = -1*torch.linalg.solve((self.inner_grad22(mu_old, h_star, X_in, y_in)), (self.inner_grad12(mu_old, h_star, X_in, y_in)))
+      Jac = -1*torch.linalg.solve((self.inner_grad22(mu_old, theta_star, X_in, y_in)), (self.inner_grad12(mu_old, theta_star, X_in, y_in)))
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
-      grad = self.outer_grad1(mu_old, h_star, X_out, y_out) + Jac.T @ self.outer_grad2(mu_old, h_star, X_out, y_out)
-    elif self.method=="frankenstein":
-      X_in, y_in = self.X_inner, self.y_inner
-      X_out, y_out = self.X_outer, self.y_outer
-      # 1) Find a parameter vector h* the argmin of the inner objective G(mu,h)
-      h_star_vec = self.find_h_star(self.X_inner, self.y_inner, mu_old)
-      h_star = lambda x : x @ h_star_vec
-      # 2) Find a function that approximates a*(x)
-      a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
-      X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
-      # 3) Compute grad L(x): the gradient of L(x) wrt x
-      X_in = sample_X(self.X_inner, self.batch_size)
-      X_out = sample_X(self.X_outer, self.batch_size)
-      term1 = self.outer_grad1(mu_old, h_star, X_out, None)
-      term2 = self.B_star(mu_old, h_star, X_in, None)
-      term3 = a_star(X_in)
-      grad = term1 + term2.T @ term3
+      grad = self.outer_grad1(mu_old, theta_star, X_out, y_out) + Jac.T @ self.outer_grad2(mu_old, theta_star, X_out, y_out)
+      self.theta_star = theta_star
+      h_star = theta_star
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
       h_star, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
-      #plot_loss(loss_values)
       # 2) Find a function that approximates a*(x)
       a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
+      # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
       X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
-      #true_a_star = self.find_a_star(h_star, X_out, y_out)
-      #print("a_star:", a_star(X_out))
-      #print("true_a_star:", true_a_star)
-      #plot_loss(loss_values)
-      # 3) Compute grad L(x): the gradient of L(x) wrt x
-      X_in = sample_X(self.X_inner, self.batch_size)
-      X_out = sample_X(self.X_outer, self.batch_size)
-      term1 = self.outer_grad1(mu_old, h_star, X_out, None)
-      term2 = self.B_star(mu_old, h_star, X_in, None)
-      term3 = a_star(X_in)
-      grad = term1 + term2.T @ term3
+      X_in, y_in = sample_X_y(self.X_inner, self.y_inner, self.batch_size)
+      B = self.B_star(mu_old, h_star, X_in, None)
+      grad = self.outer_grad1(mu_old, h_star, X_out, None) + B.T @ (a_star(X_in))
+      self.h_star = h_star
+      self.a_star = a_star
     else:
       raise ValueError("Unkown method for solving a bilevel problem")
     # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
-    #print("Gradient:", grad)
     mu_new = mu_old-step*grad
     # 5) Enforce x positive
     mu_new = torch.full((1,1), 0.) if mu_new[0,0]<0 else mu_new
@@ -141,44 +119,37 @@ class BilevelProblem:
     mu_new = mu_new.detach()
     return mu_new, h_star
 
+  def h_star(self, h_theta=None):
+    """
+    Return the function h* for neural imp. diff. or h*_theta for classical imp. diff.
+      param h_theta: a method that return a function parametrized by theta*
+    """
+    if self.method == "neural_implicit_diff":
+      h = self.NN_h
+    elif self.method == "implicit_diff":
+      h = h_theta(self.theta_star)
+    return h
+
+  def a_star(self, mu=0, outer_grad2_h=None, h_theta=None, h_theta_grad=None):
+    """
+    Return the function a* for neural imp. diff. and an equivalent for classical imp. diff.
+      param inner_grad22: the hessian of the inner objective
+      param h_theta_grad: the gradient of a function parametrized by theta*
+    """
+    if self.method == "implicit_diff":
+      # Need X_in and X_ou here, no?
+      a = lambda X, y: h_theta_grad(X) @ torch.linalg.solve(self.inner_grad22(mu, self.theta_star, X, y), h_theta_grad(X).T) @ outer_grad2_h(mu, h_theta, X, y)
+    return a
+
   def B_star(self, mu_old, h_star, X_in, y_in):
     """
     Computes the matrix B*(x).
     """
     return self.inner_grad12(mu_old, h_star, X_in, y_in)
 
-  def find_a_star(self, h, X_out, y_out):
-    """
-    Computes the matrix B*(x).
-    """
-    return -torch.mean(h(X_out) - y_out)
-
   def check_convergence(self, mu_old, mu_new):
     """
     Checks convergence of the algorithm based on equality of last two iterates.
     """
-    return math.isclose(mu_old, mu_new, rel_tol=1e-5)
-
-  #TODO
-  def visualize(self, intermediate_points, plot_x_lim=5, plot_y_lim=5, plot_nb_contours=50):
-    """
-    Plot the intermediate steps of bilevel optimization.
-      param intermediate_points: intermediate points of gradient descent
-    """
-    xlist = np.linspace(-1*plot_x_lim, plot_x_lim, plot_nb_contours)
-    ylist = np.linspace(-1*plot_y_lim, plot_y_lim, plot_nb_contours)
-    X, Y = np.meshgrid(xlist, ylist)
-    Z = np.zeros_like(X)
-    for i in range(0, len(X)):
-        for j in range(0, len(X)):
-            Z[i, j] = self.outer_objective(X[i, j], Y[i, j])
-    plt.clf()
-    cs = plt.contour(X, Y, Z, plot_nb_contours, cmap=plt.cm.magma, alpha=0.8, extend='both')
-    for i in intermediate_points:
-      plt.scatter(i, 0, marker='.', color='#495CD5')
-    plt.scatter(intermediate_points[-1], 0, marker='*', color='r')
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.xlim(-plot_x_lim, plot_x_lim)
-    plt.ylim(-plot_y_lim, plot_y_lim)
-    plt.show()
+    return torch.abs(mu_old-mu_new)<5.3844e-04
+  
