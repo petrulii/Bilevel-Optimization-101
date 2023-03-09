@@ -72,16 +72,20 @@ def plot_1D_iterations(iters1, iters2, f1, f2, plot_x_lim=[0,1], titles=["Classi
     ax2.set_ylabel("f(\mu)")
     plt.show()
 
-def plot_loss(loss_values):
+def plot_loss(loss_values, title="Step-wise Loss", labels=None):
     """
     Plot the loss value over iterations.
     	param loss_values: list of values to be plotted
     """
     loss_values = [tensor.item() for tensor in loss_values]
-    step = np.arange(0, len(loss_values), 1)
-    fig, ax = plt.subplots(figsize=(6,4))
-    plt.plot(step, loss_values)
-    plt.title("Step-wise Loss")
+    ticks = np.arange(0, len(loss_values), 1)
+    fig, ax = plt.subplots(figsize=(4,3))
+    plt.plot(ticks, loss_values)
+    plt.title(title)
+    n_ticks = len(ticks)
+    if n_ticks > 10:
+        labels = ['']*n_ticks
+    plt.xticks(ticks=ticks, labels=labels)
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.show()

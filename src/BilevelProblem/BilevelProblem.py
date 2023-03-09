@@ -69,16 +69,18 @@ class BilevelProblem:
     if not isinstance(mu0, (torch.Tensor)):
       raise TypeError("Invalid input type for mu0, should be a tensor")
     mu_new = mu0
-    n_iters, iters, converged, times = 0, [mu_new], False, []
+    n_iters, iters, converged, inner_loss, outer_loss, times = 0, [mu_new], False, [], [], []
     while n_iters < maxiter and not converged:
       mu_old = mu_new.clone()
       start = time.time()
       mu_new, h_star = self.find_mu_new(mu_old, step)
+      inner_loss.append(self.inner_objective(mu_new, h_star, self.X_inner, self.y_inner))
+      outer_loss.append(self.outer_objective(mu_new, h_star, self.X_outer, self.y_outer))
       times.append(time.time() - start)
       converged = self.check_convergence(mu_old, mu_new)
       iters.append(mu_new)
       n_iters += 1
-    return mu_new, iters, n_iters, times, h_star
+    return mu_new, iters, n_iters, times, inner_loss, outer_loss, h_star
 
   def find_mu_new(self, mu_old, step):
     """
