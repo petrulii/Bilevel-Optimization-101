@@ -37,9 +37,14 @@ class BilevelProblem:
     self.inner_grad22 = gradients[2]
     self.inner_grad12 = gradients[3]
     if self.method=="neural_implicit_diff":
-      self.NN_h = FunctionApproximator(function='h')
+      dim_x = self.X_inner.size()[1]
+      dim_y = 1
+      layer_sizes = [dim_x, 10, 20, 10, dim_y]
+      # Neural network to approximate the function h*
+      self.NN_h = FunctionApproximator(layer_sizes, loss_G=inner_objective, function='h')
       self.NN_h.load_data(self.X_inner, self.y_inner)
-      self.NN_a = FunctionApproximator(function='a')
+      # Neural network to approximate the function a*
+      self.NN_a = FunctionApproximator(layer_sizes, function='a')
       self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
     elif self.method=="implicit_diff":
       self.find_theta_star = find_theta_star
@@ -107,7 +112,7 @@ class BilevelProblem:
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
       X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
       X_in, y_in = sample_X_y(self.X_inner, self.y_inner, self.batch_size)
-      B = self.B_star(mu_old, h_star, X_in, None)
+      B = self.B_star(mu_old, h_star, X_in, y_in)
       grad = self.outer_grad1(mu_old, h_star, X_out, None) + B.T @ (a_star(X_in))
       self.h_star = h_star
       self.a_star = a_star
@@ -116,7 +121,7 @@ class BilevelProblem:
     # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
     mu_new = mu_old-step*grad
     # 5) Enforce x positive
-    mu_new = torch.full((1,1), 0.) if mu_new[0,0]<0 else mu_new
+    mu_new = torch.nn.functional.relu(mu_new)
     # Remove the associated autograd
     mu_new = mu_new.detach()
     return mu_new, h_star
@@ -153,5 +158,5 @@ class BilevelProblem:
     """
     Checks convergence of the algorithm based on equality of last two iterates.
     """
-    return torch.abs(mu_old-mu_new)<5.3844e-04
+    return torch.norm(mu_old-mu_new)<5.3844e-04
   

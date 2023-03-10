@@ -8,15 +8,23 @@ class FunctionApproximator():
 	An object to approximate an arbitrary function.
 	"""
 
-	def __init__(self, layer_sizes=[2, 10, 20, 10, 1], batch_size = 64, function='h'):
+	def __init__(self, layer_sizes, loss_G=None, batch_size = 64, function='h'):
 		"""
 		Init method.
 			param layer_sizes: sizes of the layers of the network used to approximate functions
 			param batch_size: size of training batches
 		"""
+		self.loss_G = loss_G
 		self.batch_size = batch_size
+		if layer_sizes is None:
+			raise AttributeError("You must specify the layer sizes for the network.")
+		if len(layer_sizes) != 5:
+			raise ValueError("Networks have five layers, you must give a list with five integer values.")
 		if function == 'h':
-			self.NN = NeuralNetwork_h()
+			if loss_G is None:
+				raise AttributeError("You must specify the inner objective loss G.")
+			else:
+				self.NN = NeuralNetwork_h(layer_sizes)
 		elif function == 'a':
 			self.NN = NeuralNetwork_a(layer_sizes)
 		else:
@@ -79,23 +87,23 @@ class FunctionApproximator():
 		else:
 			raise AttributeError("Can only approximate h*(x) or a*(x), you must provide necessary inputs")
 
+	"""
 	def loss_G(self, mu_k, h_k, X_i, y_i):
-		"""
-		Returns a loss function to recover h*(x) that only depends on the output and the target.
-		"""
+		#Returns a loss function to recover h*(x) that only depends on the output and the target.
 		# Here pred_h is a set of predictions h(x) for a set of w in an idd sample from p(w)
 		return torch.mean(torch.pow((h_k(X_i) - y_i),2) + torch.mul(mu_k,torch.sum(torch.pow(h_k(X_i),2))))
+	"""
 
 	def loss_H(self, mu_k, h_k, a_k, inner_grad22, outer_grad2, X_i, y_i, X_o, y_o):
 		"""
 		Returns a loss function to recover a*(x) that only depends on the output and the target.
 		"""
 		# Here pred_a is a set of predictions a(w) for a set of w in an idd sample from p(w)
-		aT_in = torch.transpose(a_k(X_i),0,1)
+		aT_in = a_k(X_i).T
 		hessian = inner_grad22(mu_k, h_k, X_i, y_i)
-		aT_hessian = torch.matmul(aT_in.double(), hessian.double())
+		aT_hessian = aT_in @ hessian
 		a_in = a_k(X_i)
-		aT_out = torch.transpose(a_k(X_o),0,1)
+		aT_out = a_k(X_o).T
 		grad = outer_grad2(mu_k, h_k, X_o, y_o)
 		return (1/2)*torch.mean(torch.matmul(aT_hessian.double(), a_in.double()))+(1/2)*torch.mean(torch.matmul(aT_out.double(),grad.double()))
 
@@ -105,8 +113,6 @@ class NeuralNetwork_a(nn.Module):
 	A neural network to approximate the function a* for neural implicit differentiation.
 	"""
 	def __init__(self, layer_sizes):
-		if len(layer_sizes) != 5:
-			raise ValueError("The network has five layers, you must give a list with five integer values")
 		super(NeuralNetwork_a, self).__init__()
 		self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
 		nn.init.kaiming_uniform_(self.layer_1.weight)
@@ -127,15 +133,21 @@ class NeuralNetwork_h(nn.Module):
 	"""
 	A neural network to approximate the function h* for neural implicit differentiation.
 	"""
-	def __init__(self):
+	def __init__(self, layer_sizes):
 		super(NeuralNetwork_h, self).__init__()
-		self.layer_1 = nn.Linear(2, 2)
+		self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
 		nn.init.kaiming_uniform_(self.layer_1.weight)
-		self.layer_2 = nn.Linear(2, 1)
+		self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
+		nn.init.kaiming_uniform_(self.layer_2.weight)
+		self.layer_3 = nn.Linear(layer_sizes[2], layer_sizes[3])
+		nn.init.kaiming_uniform_(self.layer_3.weight)
+		self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
 	def forward(self, x):
 		x = self.layer_1(x)
 		x = self.layer_2(x)
+		x = self.layer_3(x)
+		x = self.layer_4(x)
 		return x
 
 class Data(Dataset):
