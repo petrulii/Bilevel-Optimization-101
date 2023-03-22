@@ -67,8 +67,8 @@ ig12 = lambda mu, theta, X_in, y_in: torch.stack((X_in.T @ (X_in @ theta - y_in[
 # Optimize using classical implicit differention
 bp_classic = BilevelProblem(outer_objective=fo, inner_objective=fi, method="implicit_diff", data=dataset, gradients=[og1,og2,ig22,ig12], find_theta_star=find_theta_star)
 mu_opt_c, iters_c, n_iters, times, inner_loss, outer_loss, theta = bp_classic.optimize(mu0, maxiter=maxiter, step=step)
-#plot_loss(inner_loss, title="Inner loss of clas. im. diff.")
-#plot_loss(outer_loss, title="Outer loss of clas. im. diff.")
+#plot_loss("Inn. loss of CID", inner_loss, title="Inner loss of clas. im. diff.")
+#plot_loss("Out. loss of CID", outer_loss, title="Outer loss of clas. im. diff.")
 
 # Show results
 print("CLASSICAL IMPLICIT DIFFERENTIATION")
@@ -98,8 +98,8 @@ ig12 = lambda mu, h, X_in, y_in: torch.cat(((h(X_in) - torch.reshape(y_in[:,1], 
 # Optimize using neural implicit differention
 bp_neural = BilevelProblem(outer_objective=fo, inner_objective=fi, method="neural_implicit_diff", data=dataset, gradients=[og1,og2,ig22,ig12])
 mu_opt_n, iters_n, n_iters, times, inner_loss, outer_loss, h_star_n = bp_neural.optimize(mu0, maxiter=maxiter, step=step)
-plot_loss(inner_loss, title="Inner loss of neur. im. diff.")
-plot_loss(outer_loss, title="Outer loss of neur. im. diff.")
+plot_loss("Inn. loss of NID", inner_loss, title="Inner loss of neur. im. diff.")
+plot_loss("Out. loss of NID", outer_loss, title="Outer loss of neur. im. diff.")
 
 # Show results
 print("NEURAL IMPLICIT DIFFERENTIATION")
@@ -119,8 +119,7 @@ h_star_c = bp_classic.h_star(h_theta)
 
 f_c = lambda mu : torch.pow(torch.norm((h_star_c(X_train) - y_train)),2) + (mu.clone().detach())*torch.pow(torch.norm(h_star_c(X_train)),2)
 f_n = lambda mu : torch.pow(torch.norm((h_star_n(X_val) - y_val)),2) + mu*torch.pow(torch.norm(h_star_n(X_val)),2)
-plot_2D_functions(h_true, h_star_c, h_star_n, points=None, plot_x_lim=[0,mu_0_value], plot_y_lim=[0,1], plot_nb_contours=80, titles=["True Imp. Diff.","Classical Imp. Diff.","Neural Imp. Diff."])
-#plot_1D_iterations(iters_c, iters_n, f_c, f_n, plot_x_lim=[0,mu_0_value], titles=["Classical Imp. Diff.","Neural Imp. Diff."])
+plot_2D_functions("Prediction function", h_true, h_star_c, h_star_n, points=None, plot_x_lim=[0,mu_0_value], plot_y_lim=[0,1], plot_nb_contours=80, titles=["True Imp. Diff.","Classical Imp. Diff.","Neural Imp. Diff."])
 
 """
 # Testing a*
