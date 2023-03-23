@@ -10,7 +10,7 @@ class BilevelProblem:
   The BilevelProblem object instanciates the bilevel problem.
   """
 
-  def __init__(self, outer_objective, inner_objective, method, data, gradients, find_theta_star=None, batch_size=64):
+  def __init__(self, outer_objective, inner_objective, method, data, gradients, find_theta_star=None, batch_size=64, device=None):
     """
     Init method.
       param inner_objective: inner level objective function
@@ -41,13 +41,14 @@ class BilevelProblem:
       dim_y = 1
       layer_sizes = [dim_x, 10, 20, 10, dim_y]
       # Neural network to approximate the function h*
-      self.NN_h = FunctionApproximator(layer_sizes, loss_G=inner_objective, function='h')
+      self.NN_h = FunctionApproximator(layer_sizes, loss_G=inner_objective, function='h', device=device)
       self.NN_h.load_data(self.X_inner, self.y_inner)
       # Neural network to approximate the function a*
-      self.NN_a = FunctionApproximator(layer_sizes, function='a')
+      self.NN_a = FunctionApproximator(layer_sizes, function='a', device=device)
       self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
     elif self.method=="implicit_diff":
       self.find_theta_star = find_theta_star
+    self.device = device
     self.batch_size = batch_size
     self.__input_check__()
 
