@@ -8,7 +8,7 @@ class FunctionApproximator():
 	An object to approximate an arbitrary function.
 	"""
 
-	def __init__(self, layer_sizes, loss_G=None, batch_size=64, function='h', device=None):
+	def __init__(self, layer_sizes, loss_G=None, batch_size = 64, function='h'):
 		"""
 		Init method.
 			param layer_sizes: sizes of the layers of the network used to approximate functions
@@ -24,9 +24,9 @@ class FunctionApproximator():
 			if loss_G is None:
 				raise AttributeError("You must specify the inner objective loss G.")
 			else:
-				self.NN = (NeuralNetwork_h(layer_sizes)).to(device)
+				self.NN = NeuralNetwork_h(layer_sizes)
 		elif function == 'a':
-			self.NN = (NeuralNetwork_a(layer_sizes)).to(device)
+			self.NN = NeuralNetwork_a(layer_sizes)
 		else:
 			raise AttributeError("You must specify the function that the network will approximate.")
 

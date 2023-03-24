@@ -1,0 +1,29 @@
+No GPUs found, setting the device to CPU.
+X shape: (10000, 2)
+y shape: (10000, 3)
+True coeficients: tensor([[1.],
+        [1.]])
+X training data: tensor([[0.8118, 0.6260],
+        [0.5623, 0.1411],
+        [0.1003, 0.8191],
+        [0.2995, 0.4990]])
+y training labels: tensor([[ 1.2861,  2.3941,  2.2164],
+        [ 0.0484,  3.0102,  0.4869],
+        [ 1.3947,  1.4097, -1.1545],
+        [ 0.6235,  0.0453, -1.1136]])
+
+CLASSICAL IMPLICIT DIFFERENTIATION
+Argmin of the outer objective: tensor([[66.2990],
+        [ 0.0000]])
+Average iteration time: 0.02000880241394043
+Number of iterations: 2
+True coefficients theta: tensor([[1.],
+        [1.]])
+Fitted coefficients theta: tensor([1.0019, 0.9908])
+
+NEURAL IMPLICIT DIFFERENTIATION
+Argmin of the outer objective: tensor([[5.9597],
+        [0.0000]])
+Average iteration time: 4.04353305498759
+Number of iterations: 30
+

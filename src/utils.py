@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
+def plot_2D_functions(f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
     """
     A function to plot three continuos 2D functions side by side on the same domain.
     """
@@ -35,9 +35,9 @@ def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_
     ax3.set_title(titles[2])
     ax3.set_xlabel("Feature #0")
     ax3.set_ylabel("Feature #1")
-    plt.savefig(figname+".png")
+    plt.show()
 
-def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles=["Classical Imp. Diff.","Neural Imp. Diff."]):
+def plot_1D_iterations(iters1, iters2, f1, f2, plot_x_lim=[0,1], titles=["Classical Imp. Diff.","Neural Imp. Diff."]):
     """
     A function to plot three continuos 2D functions side by side on the same domain.
     """
@@ -70,9 +70,9 @@ def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles
     ax2.set_title(titles[1])
     ax2.set_xlabel("\mu")
     ax2.set_ylabel("f(\mu)")
-    plt.savefig(figname+".png")
+    plt.show()
 
-def plot_loss(figname, loss_values, title="Step-wise Loss", labels=None):
+def plot_loss(loss_values, title="Step-wise Loss", labels=None):
     """
     Plot the loss value over iterations.
     	param loss_values: list of values to be plotted
@@ -88,7 +88,7 @@ def plot_loss(figname, loss_values, title="Step-wise Loss", labels=None):
     plt.xticks(ticks=ticks, labels=labels)
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
-    plt.savefig(figname+".png")
+    plt.show()
 
 def sample_X(X, n):
     """
