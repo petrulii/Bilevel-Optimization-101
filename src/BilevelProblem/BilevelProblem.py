@@ -12,7 +12,7 @@ class BilevelProblem:
   The BilevelProblem object instanciates the bilevel problem.
   """
 
-  def __init__(self, outer_objective, inner_objective, method, data, fo_h_X=None, fi_h_X=None, find_theta_star=None, batch_size=64, device=None):
+  def __init__(self, outer_objective, inner_objective, method, data, fo_h_X=None, fi_h_X=None, find_theta_star=None, batch_size=64, device=None, gradients=None):
     """
     Init method.
       param inner_objective: inner level objective function
@@ -30,11 +30,13 @@ class BilevelProblem:
     self.y_outer = data[1]
     self.X_inner = data[2]
     self.y_inner = data[3]
-    #self.outer_grad1 = gradients[0]
-    #self.outer_grad2 = gradients[1]
-    #self.inner_grad22 = gradients[2]
-    #self.inner_grad12 = gradients[3]
     self.dim_x = self.X_inner.size()[1]
+    # If analytical gradients are provided.
+    if gradients != None:
+      self.outer_grad1 = gradients[0]
+      self.outer_grad2 = gradients[1]
+      self.inner_grad22 = gradients[2]
+      self.inner_grad12 = gradients[3]
     if self.method=="neural_implicit_diff":
       self.fo_h_X = fo_h_X
       self.fi_h_X = fi_h_X
@@ -58,8 +60,8 @@ class BilevelProblem:
     """
     if (self.outer_objective is None) or (self.inner_objective is None):
       raise AttributeError("You must specify the inner and outer objectives")
-    #if (self.outer_grad1 is None) or (self.outer_grad2 is None) or (self.inner_grad22 is None) or (self.inner_grad12 is None):
-    #  raise AttributeError("You must specify each of the necessary gradients")
+    if (self.inner_grad22 is None) and (self.fo_h_X is None or self.fi_h_X is None):
+      raise AttributeError("You must specify objectives with respect to h(X)")
     if (self.method == "implicit_diff")  and (self.find_theta_star is None):
       raise AttributeError("You must specify the closed form solution of the inner problem for classical imp. diff.")
     if not (self.method == "implicit_diff" or self.method == "neural_implicit_diff"):
@@ -71,15 +73,19 @@ class BilevelProblem:
     """
     if self.method=="implicit_diff":
       theta = h
+      X_out.detach()
+      y_out.detach()
+      theta.detach()
       assert(theta.requires_grad == X_out.requires_grad == y_out.requires_grad == False)
     elif self.method=="neural_implicit_diff":
       assert(X_out.requires_grad == y_out.requires_grad == False)
     else:
       raise ValueError("Unkown method for solving a bilevel problem")
+    mu.detach()
     mu.requires_grad=True
     mu.retain_grad()
     self.outer_objective(mu, h, X_out, y_out).backward()
-    gradient = mu.grad
+    gradient = torch.reshape(mu.grad, mu.size())
     if gradient is None:
       gradient = mu.detach().clone() * 0
     mu.requires_grad=False
@@ -92,10 +98,14 @@ class BilevelProblem:
     assert(mu.requires_grad == X_out.requires_grad == y_out.requires_grad == False)
     if self.method=="implicit_diff":
       theta = h
+      X_out.detach()
+      y_out.detach()
+      theta.detach()
+      mu.detach()
       theta.requires_grad=True
       theta.retain_grad()
       self.outer_objective(mu, theta, X_out, y_out).backward()
-      gradient = torch.reshape(theta.grad, (self.dim_x,1))
+      gradient = torch.reshape(theta.grad, theta.size())
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_out)
@@ -113,14 +123,23 @@ class BilevelProblem:
     assert(mu.requires_grad == X_in.requires_grad == y_in.requires_grad == False)
     if self.method=="implicit_diff":
       theta = h
+      X_in.detach()
+      y_in.detach()
+      theta.detach()
+      mu.detach()
       theta.requires_grad=True
       theta.retain_grad()
-      hess = hessian(self.outer_objective, (mu, theta, X_in, X_in))
+      f = lambda arg1, arg2: self.inner_objective(arg1, arg2, X_in, y_in)
+      hess = torch.reshape(hessian(f, (mu, theta))[1][1], (self.dim_x, self.dim_x))
+      #tensor([[6881.8682, 5165.3926],
+      #        [5165.3926, 7028.7324]], device='cuda:0')
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_in)
       h_X.retain_grad()
-      hess = hessian(self.fi_h_X, (mu, h_X, y_in))
+      f = lambda arg1, arg2: self.fi_h_X(arg1, arg2, y_in)
+      hess = hessian(f, (mu, h_X))[1][1]
+      hess = torch.reshape(hess, (h_X.size()[0],h_X.size()[0]))
     else:
       raise ValueError("Unkown method for solving a bilevel problem")
     return hess
@@ -133,22 +152,25 @@ class BilevelProblem:
     mu.requires_grad=True
     if self.method=="implicit_diff":
       theta = h
+      X_in.detach()
+      y_in.detach()
+      theta.detach()
+      mu.detach()
       theta.requires_grad=True
       theta.retain_grad()
-      hess = hessian(self.outer_objective, (mu, theta, X_in, X_in))
+      f = lambda arg1, arg2: self.inner_objective(arg1, arg2, X_in, y_in)
+      hess = hessian(f, (mu, theta))[0][1]
+      hess = torch.reshape(hess, (mu.size()[0],theta.size()[0])).T
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_in)
       h_X.retain_grad()
-      hess = hessian(self.fi_h_X, (mu, h_X, y_in))
+      f = lambda arg1, arg2: self.fi_h_X(arg1, arg2, y_in)
+      hess = hessian(f, (mu, h_X))[0][1]
+      hess = torch.reshape(hess, (mu.size()[0],h_X.size()[0])).T
     else:
       raise ValueError("Unkown method for solving a bilevel problem")
     mu.requires_grad=False
-    print("Hessian size:", hess.size())
-    print("mu size:", mu.size())
-    # This is a tuple, need to extract the right part of the hessian
-    print("h_X size:", h_X.size())
-    exit(0)
     return hess
 
   def optimize(self, mu0, maxiter=100, step=0.1):

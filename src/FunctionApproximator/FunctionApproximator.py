@@ -105,7 +105,7 @@ class FunctionApproximator():
 		a_in = a_k(X_i)
 		aT_out = a_k(X_o).T
 		grad = outer_grad2(mu_k, h_k, X_o, y_o)
-		return (1/2)*torch.mean(torch.matmul(aT_hessian.double(), a_in.double()))+(1/2)*torch.mean(torch.matmul(aT_out.double(),grad.double()))
+		return (1/2)*torch.mean(aT_hessian.double() @ a_in.double())+(1/2)*torch.mean(aT_out.double() @ grad.double())
 
 
 class NeuralNetwork_a(nn.Module):

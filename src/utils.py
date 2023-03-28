@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
+def plot_2D_functions(figname, f1, f2, f3, device, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
     """
     A function to plot three continuos 2D functions side by side on the same domain.
     """
@@ -15,9 +15,9 @@ def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_
     for i in range(0, len(X)):
         for j in range(0, len(X)):
             a = np.array([X[i, j], Y[i, j]], dtype='float32')
-            Z1[i, j] = f1(torch.from_numpy(a)).float()
-            Z2[i, j] = f2(torch.from_numpy(a)).float()
-            Z3[i, j] = f3(torch.from_numpy(a)).float()
+            Z1[i, j] = f1(((torch.from_numpy(a)).to(device)).float())
+            Z2[i, j] = f2(((torch.from_numpy(a)).to(device)).float())
+            Z3[i, j] = f3(((torch.from_numpy(a)).to(device)).float())
     # Visualize the true function.
     fig, (ax1, ax2, ax3) = plt.subplots(ncols=3, sharex=True, sharey=True, figsize=(9, 3))
     ax1.contour(X, Y, Z1, plot_nb_contours, cmap=plt.cm.magma, alpha=0.8, extend='both')
@@ -37,7 +37,7 @@ def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_
     ax3.set_ylabel("Feature #1")
     plt.savefig(figname+".png")
 
-def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles=["Classical Imp. Diff.","Neural Imp. Diff."]):
+def plot_1D_iterations(figname, iters1, iters2, f1, f2, device, plot_x_lim=[0,1], titles=["Classical Imp. Diff.","Neural Imp. Diff."]):
     """
     A function to plot three continuos 2D functions side by side on the same domain.
     """
@@ -47,7 +47,7 @@ def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles
     fig, (ax1, ax2) = plt.subplots(ncols=2, sharex=True, sharey=True, figsize=(7, 3))
     Z1, Z2 = np.zeros_like(X), np.zeros_like(X)
     for i in range(0, len(X)):
-        a = torch.from_numpy(np.array(X[i], dtype='float32'))
+        a = (torch.from_numpy(np.array(X[i], dtype='float32'))).to(device)
         Z1[i] = f1(a).float()
         Z2[i] = f2(a).float()
     Z3, Z4 = np.zeros(len(iters1)), np.zeros(len(iters2))
