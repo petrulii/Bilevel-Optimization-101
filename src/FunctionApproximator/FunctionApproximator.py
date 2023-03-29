@@ -1,4 +1,5 @@
 import torch
+import random
 from torch import nn, tensor
 from torch.utils.data import Dataset, DataLoader
 
@@ -8,7 +9,7 @@ class FunctionApproximator():
 	An object to approximate an arbitrary function.
 	"""
 
-	def __init__(self, layer_sizes, loss_G=None, batch_size=64, function='h', device=None):
+	def __init__(self, layer_sizes, loss_G=None, batch_size=64, function='h'):
 		"""
 		Init method.
 			param layer_sizes: sizes of the layers of the network used to approximate functions
@@ -16,6 +17,14 @@ class FunctionApproximator():
 		"""
 		self.loss_G = loss_G
 		self.batch_size = batch_size
+		# Setting the device to GPUs if available.
+		if torch.cuda.is_available():
+			dev = "cuda"
+			print("All good, switching to GPUs.")
+		else:
+			dev = "cpu"
+			print("No GPUs found, setting the device to CPU.")
+		self.device = torch.device(dev)
 		if layer_sizes is None:
 			raise AttributeError("You must specify the layer sizes for the network.")
 		if len(layer_sizes) != 5:
@@ -24,9 +33,9 @@ class FunctionApproximator():
 			if loss_G is None:
 				raise AttributeError("You must specify the inner objective loss G.")
 			else:
-				self.NN = (NeuralNetwork_h(layer_sizes)).to(device)
+				self.NN = (NeuralNetwork_h(layer_sizes, self.device)).to(self.device)
 		elif function == 'a':
-			self.NN = (NeuralNetwork_a(layer_sizes)).to(device)
+			self.NN = (NeuralNetwork_a(layer_sizes, self.device)).to(self.device)
 		else:
 			raise AttributeError("You must specify the function that the network will approximate.")
 
@@ -41,12 +50,12 @@ class FunctionApproximator():
 		self.X_inner = X_inner
 		self.y_inner = y_inner
 		self.inner_data = Data(X_inner, y_inner)
-		self.inner_dataloader = DataLoader(dataset=self.inner_data, batch_size=self.batch_size, shuffle=True)
+		self.inner_dataloader = DataLoader(dataset=self.inner_data, batch_size=self.batch_size, shuffle=False)
 		self.X_outer = X_outer
 		self.y_outer = y_outer
 		if not (self.X_outer is None and self.y_outer is None):
 			self.outer_data = Data(X_outer, y_outer)
-			self.outer_dataloader = DataLoader(dataset=self.outer_data, batch_size=self.batch_size, shuffle=True)
+			self.outer_dataloader = DataLoader(dataset=self.outer_data, batch_size=self.batch_size, shuffle=False)
 
 	def train(self, inner_grad22=None, outer_grad2=None, mu_k = None, h_k = None, num_epochs = 10, learning_rate = 0.001):
 		"""
@@ -63,6 +72,10 @@ class FunctionApproximator():
 			# Set the inner loss G with a fixed x as the objective function
 			for epoch in range(num_epochs):
 				for X_i, y_i in self.inner_dataloader:
+					# Move to the GPU
+					X_i = X_i.to(self.device)
+					y_i = y_i.to(self.device)
+					mu_k = mu_k.to(self.device)
 					# Zero all the parameter gradients
 					optimizer.zero_grad()
 					h_k = self.NN
@@ -76,6 +89,12 @@ class FunctionApproximator():
 			# Set the loss H with a fixed h*(x) as the objective function
 			for epoch in range(num_epochs):
 				for i, ((X_i, y_i), (X_o, y_o)) in enumerate(zip(self.inner_dataloader, self.outer_dataloader)):
+					# Move to the GPU
+					X_i = X_i.to(self.device)
+					y_i = y_i.to(self.device)
+					X_o = X_o.to(self.device)
+					y_o = y_o.to(self.device)
+					mu_k = mu_k.to(self.device)
 					# Zero all the parameter gradients
 					a_k = self.NN
 					loss = self.loss_H(mu_k, h_k, a_k, inner_grad22, outer_grad2, X_i, y_i, X_o, y_o)
@@ -112,8 +131,9 @@ class NeuralNetwork_a(nn.Module):
 	"""
 	A neural network to approximate the function a* for neural implicit differentiation.
 	"""
-	def __init__(self, layer_sizes):
+	def __init__(self, layer_sizes, device):
 		super(NeuralNetwork_a, self).__init__()
+		self.device = device
 		self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
 		nn.init.kaiming_uniform_(self.layer_1.weight)
 		self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
@@ -123,6 +143,8 @@ class NeuralNetwork_a(nn.Module):
 		self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
 	def forward(self, x):
+		# Move to the GPU
+		x = x.to(self.device)
 		x = torch.relu(self.layer_1(x))
 		x = torch.tanh(self.layer_2(x))
 		x = torch.tanh(self.layer_3(x))
@@ -133,8 +155,9 @@ class NeuralNetwork_h(nn.Module):
 	"""
 	A neural network to approximate the function h* for neural implicit differentiation.
 	"""
-	def __init__(self, layer_sizes):
+	def __init__(self, layer_sizes, device):
 		super(NeuralNetwork_h, self).__init__()
+		self.device = device
 		self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
 		nn.init.kaiming_uniform_(self.layer_1.weight)
 		self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
@@ -144,6 +167,8 @@ class NeuralNetwork_h(nn.Module):
 		self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
 	def forward(self, x):
+		# Move to the GPU
+		x = x.to(self.device)
 		x = self.layer_1(x)
 		x = self.layer_2(x)
 		x = self.layer_3(x)

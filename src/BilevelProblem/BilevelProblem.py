@@ -12,7 +12,7 @@ class BilevelProblem:
   The BilevelProblem object instanciates the bilevel problem.
   """
 
-  def __init__(self, outer_objective, inner_objective, method, data, fo_h_X=None, fi_h_X=None, find_theta_star=None, batch_size=64, device=None, gradients=None):
+  def __init__(self, outer_objective, inner_objective, method, data, fo_h_X=None, fi_h_X=None, find_theta_star=None, batch_size=64, gradients=None):
     """
     Init method.
       param inner_objective: inner level objective function
@@ -43,14 +43,13 @@ class BilevelProblem:
       dim_y = 1
       layer_sizes = [self.dim_x, 10, 20, 10, dim_y]
       # Neural network to approximate the function h*
-      self.NN_h = FunctionApproximator(layer_sizes, loss_G=inner_objective, function='h', device=device)
+      self.NN_h = FunctionApproximator(layer_sizes, loss_G=inner_objective, function='h')
       self.NN_h.load_data(self.X_inner, self.y_inner)
       # Neural network to approximate the function a*
-      self.NN_a = FunctionApproximator(layer_sizes, function='a', device=device)
+      self.NN_a = FunctionApproximator(layer_sizes, function='a')
       self.NN_a.load_data(self.X_inner, self.y_inner, self.X_outer, self.y_outer)
     elif self.method=="implicit_diff":
       self.find_theta_star = find_theta_star
-    self.device = device
     self.batch_size = batch_size
     self.__input_check__()
 
@@ -71,11 +70,11 @@ class BilevelProblem:
     """
     Returns the gradient of the outer objective wrt to the first variable.
     """
+    X_out.detach()
+    y_out.detach()
     if self.method=="implicit_diff":
+      h.detach()
       theta = h
-      X_out.detach()
-      y_out.detach()
-      theta.detach()
       assert(theta.requires_grad == X_out.requires_grad == y_out.requires_grad == False)
     elif self.method=="neural_implicit_diff":
       assert(X_out.requires_grad == y_out.requires_grad == False)
@@ -84,10 +83,9 @@ class BilevelProblem:
     mu.detach()
     mu.requires_grad=True
     mu.retain_grad()
+    mu.grad = None
     self.outer_objective(mu, h, X_out, y_out).backward()
     gradient = torch.reshape(mu.grad, mu.size())
-    if gradient is None:
-      gradient = mu.detach().clone() * 0
     mu.requires_grad=False
     return gradient
 
@@ -95,13 +93,13 @@ class BilevelProblem:
     """
     Returns the gradient of the outer objective wrt to the second variable.
     """
+    X_out.detach()
+    y_out.detach()
+    mu.detach()
     assert(mu.requires_grad == X_out.requires_grad == y_out.requires_grad == False)
     if self.method=="implicit_diff":
+      h.detach()
       theta = h
-      X_out.detach()
-      y_out.detach()
-      theta.detach()
-      mu.detach()
       theta.requires_grad=True
       theta.retain_grad()
       self.outer_objective(mu, theta, X_out, y_out).backward()
@@ -109,7 +107,9 @@ class BilevelProblem:
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_out)
+      h_X.detach()
       h_X.retain_grad()
+      h_X.grad = None
       self.fo_h_X(mu, h_X, y_out).backward()
       gradient = h_X.grad
     else:
@@ -121,21 +121,20 @@ class BilevelProblem:
     Returns the hessian of the inner objective wrt to the second variable.
     """
     assert(mu.requires_grad == X_in.requires_grad == y_in.requires_grad == False)
+    mu.detach()
+    X_in.detach()
+    y_in.detach()
     if self.method=="implicit_diff":
+      h.detach()
       theta = h
-      X_in.detach()
-      y_in.detach()
-      theta.detach()
-      mu.detach()
       theta.requires_grad=True
       theta.retain_grad()
       f = lambda arg1, arg2: self.inner_objective(arg1, arg2, X_in, y_in)
       hess = torch.reshape(hessian(f, (mu, theta))[1][1], (self.dim_x, self.dim_x))
-      #tensor([[6881.8682, 5165.3926],
-      #        [5165.3926, 7028.7324]], device='cuda:0')
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_in)
+      h_X.detach()
       h_X.retain_grad()
       f = lambda arg1, arg2: self.fi_h_X(arg1, arg2, y_in)
       hess = hessian(f, (mu, h_X))[1][1]
@@ -149,11 +148,11 @@ class BilevelProblem:
     Returns part of the hessian of the inner objective wrt to both variables.
     """
     assert(X_in.requires_grad == y_in.requires_grad == False)
+    X_in.detach()
+    y_in.detach()
     mu.requires_grad=True
     if self.method=="implicit_diff":
       theta = h
-      X_in.detach()
-      y_in.detach()
       theta.detach()
       mu.detach()
       theta.requires_grad=True
@@ -164,6 +163,7 @@ class BilevelProblem:
       theta.requires_grad=False
     elif self.method=="neural_implicit_diff":
       h_X = h(X_in)
+      h_X.detach()
       h_X.retain_grad()
       f = lambda arg1, arg2: self.fi_h_X(arg1, arg2, y_in)
       hess = hessian(f, (mu, h_X))[0][1]
@@ -185,11 +185,15 @@ class BilevelProblem:
     mu_new = mu0
     n_iters, iters, converged, inner_loss, outer_loss, times = 0, [mu_new], False, [], [], []
     while n_iters < maxiter and not converged:
+      print("iter:", n_iters)
       mu_old = mu_new.clone()
       start = time.time()
       mu_new, h_star = self.find_mu_new(mu_old, step)
+      #print("mu_new:", mu_new, "\nh_star(X_inner):", h_star(self.X_inner))
       inner_loss.append(self.inner_objective(mu_new, h_star, self.X_inner, self.y_inner))
+      #print("inner_loss:", self.inner_objective(mu_new, h_star, self.X_inner, self.y_inner))
       outer_loss.append(self.outer_objective(mu_new, h_star, self.X_outer, self.y_outer))
+      #print("outer_loss:", self.outer_objective(mu_new, h_star, self.X_inner, self.y_inner))
       times.append(time.time() - start)
       converged = self.check_convergence(mu_old, mu_new)
       iters.append(mu_new)
@@ -215,9 +219,12 @@ class BilevelProblem:
       h_star = theta_star
     elif self.method=="neural_implicit_diff":
       # 1) Find a function that approximates h*(x)
-      h_star, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
+      h_star_cuda, loss_values = self.NN_h.train(mu_k=mu_old, num_epochs = 10)
+      # Here autograd and manual grad already differ? Not rlly
+      h_star = self.get_h_star()
       # 2) Find a function that approximates a*(x)
-      a_star, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star, num_epochs = 10)
+      a_star_cuda, loss_values = self.NN_a.train(self.inner_grad22, self.outer_grad2, mu_k=mu_old, h_k=h_star_cuda, num_epochs = 10)
+      a_star = self.get_a_star()
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
       X_out, y_out = sample_X_y(self.X_outer, self.y_outer, self.batch_size)
       X_in, y_in = sample_X_y(self.X_inner, self.y_inner, self.batch_size)
@@ -235,24 +242,26 @@ class BilevelProblem:
     mu_new = mu_new.detach()
     return mu_new, h_star
 
-  def h_star(self, h_theta=None):
+  def get_h_star(self, h_theta=None):
     """
     Return the function h* for neural imp. diff. or h*_theta for classical imp. diff.
       param h_theta: a method that return a function parametrized by theta*
     """
     if self.method == "neural_implicit_diff":
-      h = self.NN_h
+      h = lambda x : (self.NN_h.NN.forward(x)).to(torch.device("cpu"))
     elif self.method == "implicit_diff":
       h = h_theta(self.theta_star)
     return h
 
-  def a_star(self, mu=0, outer_grad2_h=None, h_theta=None, h_theta_grad=None):
+  def get_a_star(self, mu=0, outer_grad2_h=None, h_theta=None, h_theta_grad=None):
     """
     Return the function a* for neural imp. diff. and an equivalent for classical imp. diff.
       param inner_grad22: the hessian of the inner objective
       param h_theta_grad: the gradient of a function parametrized by theta*
     """
-    if self.method == "implicit_diff":
+    if self.method == "neural_implicit_diff":
+      a = lambda x : (self.NN_a.NN.forward(x)).to(torch.device("cpu"))
+    elif self.method == "implicit_diff":
       # Need X_in and X_ou here, no?
       a = lambda X, y: h_theta_grad(X) @ torch.linalg.solve(self.inner_grad22(mu, self.theta_star, X, y), h_theta_grad(X).T) @ outer_grad2_h(mu, h_theta, X, y)
     return a
