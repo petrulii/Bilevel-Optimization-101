@@ -1,9 +1,11 @@
+import sys
+sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 import torch
 import random
 import numpy as np
 from sklearn.model_selection import train_test_split
-from BilevelProblem.BilevelProblem import BilevelProblem
-from utils import plot_1D_iterations, plot_2D_functions, plot_loss
+from model.BilevelProblem.BilevelProblem import BilevelProblem
+from model.utils import plot_1D_iterations, plot_2D_functions, plot_loss
 
 # Setting the random seed.
 seed=0
@@ -44,7 +46,7 @@ print("y training labels:", y_train[1:5])
 print()
 
 dataset = [X_val,y_val,X_train,y_train]
-maxiter = 2000
+maxiter = 2
 step = 0.1
 mu_0_value = 1.
 mu0 = (torch.full((2,1), mu_0_value))

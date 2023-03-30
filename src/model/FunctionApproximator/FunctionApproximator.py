@@ -6,14 +6,16 @@ from torch.utils.data import Dataset, DataLoader
 
 class FunctionApproximator():
 	"""
-	An object to approximate an arbitrary function.
+	Approximates one of the functions h*(X) or a*(X) used in Neural Implicit Differentiation.
 	"""
 
 	def __init__(self, layer_sizes, loss_G=None, batch_size=64, function='h'):
 		"""
 		Init method.
-			param layer_sizes: sizes of the layers of the network used to approximate functions
+			param layer_sizes: sizes of the layers of the network used to approximate functions h*(X) and a*(X)
+			param loss_G: inner loss of the bilevel problem solved using Neur. Impl. Diff.
 			param batch_size: size of training batches
+			param function: specifies which of the two functions h*(X) or a*(X) is approximated
 		"""
 		self.loss_G = loss_G
 		self.batch_size = batch_size
@@ -42,10 +44,10 @@ class FunctionApproximator():
 	def load_data(self, X_inner, y_inner, X_outer=None, y_outer=None):
 		"""
 		Loads data into a type suitable for batch training.
-			param X_inner: feature vectors of the data of the inner objective
-			param y_inner: labels of the data of the inner objective
-			param X_outer: feature vectors of the data of the outer objective
-			param y_outer: labels of the data of the outer objective
+			param X_inner: data of the inner objective
+			param y_inner: labels of the inner objective
+			param X_outer: data of the outer objective
+			param y_outer: labels of the outer objective
 		"""
 		self.X_inner = X_inner
 		self.y_inner = y_inner
@@ -60,6 +62,8 @@ class FunctionApproximator():
 	def train(self, inner_grad22=None, outer_grad2=None, mu_k = None, h_k = None, num_epochs = 10, learning_rate = 0.001):
 		"""
 		Trains a neural network that approximates a function.
+			param inner_grad22: hessian of the inner objective wrt h*(x)
+			param outer_grad2: gradient of the outer objective wrt h*(x)
 			param mu_k: current mu_k used when approximating h*(x)
 			param h_k: current h*(x) used when approximating a*(x)
 			param num_epochs: number of training epochs
@@ -67,12 +71,12 @@ class FunctionApproximator():
 		"""
 		optimizer = torch.optim.SGD(self.NN.parameters(), lr=learning_rate)
 		loss_values = []
-		# If we are approximating h_*(x)
+		# Approximating h_*(x)
 		if not (mu_k is None and self.X_inner is None and self.y_inner is None) and (h_k is None and self.X_outer is None and self.y_outer is None):
 			# Set the inner loss G with a fixed x as the objective function
 			for epoch in range(num_epochs):
 				for X_i, y_i in self.inner_dataloader:
-					# Move to the GPU
+					# Move to GPU
 					X_i = X_i.to(self.device)
 					y_i = y_i.to(self.device)
 					mu_k = mu_k.to(self.device)
@@ -84,12 +88,12 @@ class FunctionApproximator():
 					loss.backward()
 					optimizer.step()
 			return self.NN, loss_values
-		# If we are approximating a_*(x)
+		# Approximating a_*(x)
 		elif not (mu_k is None and h_k is None and self.X_inner is None and self.y_inner is None and self.X_outer is None and self.y_outer is None):
 			# Set the loss H with a fixed h*(x) as the objective function
 			for epoch in range(num_epochs):
 				for i, ((X_i, y_i), (X_o, y_o)) in enumerate(zip(self.inner_dataloader, self.outer_dataloader)):
-					# Move to the GPU
+					# Move to GPU
 					X_i = X_i.to(self.device)
 					y_i = y_i.to(self.device)
 					X_o = X_o.to(self.device)
@@ -106,18 +110,10 @@ class FunctionApproximator():
 		else:
 			raise AttributeError("Can only approximate h*(x) or a*(x), you must provide necessary inputs")
 
-	"""
-	def loss_G(self, mu_k, h_k, X_i, y_i):
-		#Returns a loss function to recover h*(x) that only depends on the output and the target.
-		# Here pred_h is a set of predictions h(x) for a set of w in an idd sample from p(w)
-		return torch.mean(torch.pow((h_k(X_i) - y_i),2) + torch.mul(mu_k,torch.sum(torch.pow(h_k(X_i),2))))
-	"""
-
 	def loss_H(self, mu_k, h_k, a_k, inner_grad22, outer_grad2, X_i, y_i, X_o, y_o):
 		"""
 		Returns a loss function to recover a*(x) that only depends on the output and the target.
 		"""
-		# Here pred_a is a set of predictions a(w) for a set of w in an idd sample from p(w)
 		aT_in = a_k(X_i).T
 		hessian = inner_grad22(mu_k, h_k, X_i, y_i)
 		aT_hessian = aT_in @ hessian
@@ -129,7 +125,7 @@ class FunctionApproximator():
 
 class NeuralNetwork_a(nn.Module):
 	"""
-	A neural network to approximate the function a* for neural implicit differentiation.
+	A neural network to approximate the function a* for Neur. Imp. Diff.
 	"""
 	def __init__(self, layer_sizes, device):
 		super(NeuralNetwork_a, self).__init__()
@@ -143,7 +139,7 @@ class NeuralNetwork_a(nn.Module):
 		self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
 	def forward(self, x):
-		# Move to the GPU
+		# Move to GPU
 		x = x.to(self.device)
 		x = torch.relu(self.layer_1(x))
 		x = torch.tanh(self.layer_2(x))
@@ -153,7 +149,7 @@ class NeuralNetwork_a(nn.Module):
 
 class NeuralNetwork_h(nn.Module):
 	"""
-	A neural network to approximate the function h* for neural implicit differentiation.
+	A neural network to approximate the function h* for Neur. Imp. Diff.
 	"""
 	def __init__(self, layer_sizes, device):
 		super(NeuralNetwork_h, self).__init__()
@@ -167,7 +163,7 @@ class NeuralNetwork_h(nn.Module):
 		self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
 	def forward(self, x):
-		# Move to the GPU
+		# Move to GPU
 		x = x.to(self.device)
 		x = self.layer_1(x)
 		x = self.layer_2(x)
@@ -177,7 +173,7 @@ class NeuralNetwork_h(nn.Module):
 
 class Data(Dataset):
 	"""
-	A class for data.
+	A class for input data.
 	"""
 	def __init__(self, X, y):
 		self.X = X
