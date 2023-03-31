@@ -4,6 +4,8 @@ import json
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from pprint import pprint
+from datasets import load_dataset
 
 
 class NYUv2(Dataset):
@@ -36,73 +38,17 @@ class NYUv2(Dataset):
     def __len__(self):
         return self.data_len
 
-def nyu_dataloaders(datapath, validation_indices, batch_size=8, val_batch_size=2, aux_set=False, aux_size=None):
+def nyu_dataloaders(datapath, validation_indices=None):
     """
     NYU dataloaders
-        :param datapath:
-        :param validation_indices:
-        :param batch_size:
-        :param val_batch_size:
-        :param aux_set:
-        :param aux_size:
-        :return:
+        param datapath: path to the dataset directory
+        param validation_indices: indices that form the validation set
     """
+    ds = load_dataset(datapath)
+    pprint(vars(ds))
+    exit(0)
     nyuv2_train_set = NYUv2(root=datapath, train=True)
-    # split to train/val
-    # for HPO we pre-allocated 10% of training examples
-    hpo_indices_mapping = json.load(open(validation_indices, 'r'))
-
-    # train/val
-    train = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping['train_indices'])
-    nyuv2_val_set = torch.utils.data.Subset(nyuv2_train_set, indices=hpo_indices_mapping['validation_indices'])
     nyuv2_test_set = NYUv2(root=datapath, train=False)
-
-    if aux_set:
-        assert 0 < aux_size < 1
-        # meta validation
-        meta_val_size = int(len(train) * aux_size)
-        train, meta_val = torch.utils.data.random_split(
-            train, (len(train) - meta_val_size, meta_val_size)
-        )
-
-        # loaders
-        nyuv2_train_loader = torch.utils.data.DataLoader(
-            dataset=train,
-            batch_size=batch_size,
-            shuffle=True
-        )
-        nyuv2_meta_val_loader = torch.utils.data.DataLoader(
-            dataset=meta_val,
-            batch_size=val_batch_size,
-            shuffle=True
-        )
-        nyuv2_val_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_val_set,
-            batch_size=val_batch_size,
-            shuffle=True
-        )
-        nyuv2_test_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_test_set,
-            batch_size=batch_size,
-            shuffle=True
-        )
-
-        return nyuv2_train_loader, nyuv2_meta_val_loader, nyuv2_val_loader, nyuv2_test_loader
-
-    else:
-        nyuv2_train_loader = torch.utils.data.DataLoader(
-            dataset=train,
-            batch_size=batch_size,
-            shuffle=True
-        )
-        nyuv2_val_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_val_set,
-            batch_size=val_batch_size,
-            shuffle=True
-        )
-        nyuv2_test_loader = torch.utils.data.DataLoader(
-            dataset=nyuv2_test_set,
-            batch_size=batch_size,
-            shuffle=True
-        )
-        return nyuv2_train_loader, nyuv2_val_loader, nyuv2_test_loader
+    train_set_numpy = nyuv2_train_set.data.numpy()
+    test_set_numpy = nyuv2_test_set.data.numpy()
+    return train_set_numpy, test_set_numpy

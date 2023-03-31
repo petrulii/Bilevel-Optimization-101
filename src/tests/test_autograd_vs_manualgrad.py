@@ -1,24 +1,21 @@
 import sys
-sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 import torch
 import random
 import numpy as np
 from sklearn.model_selection import train_test_split
+
+# Add main project directory path
+sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src/')
+
+from model.utils import set_seed
 from model.BilevelProblem.BilevelProblem import BilevelProblem
 from model.utils import plot_1D_iterations, plot_2D_functions, plot_loss
 
 # Setting the random seed.
-seed=0
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+set_seed()
 
 # Setting the directory to safe figures to.
-figures_dir = "/home/clear/ipetruli/projects/bilevel-optimization/src/figures/"
+figures_dir = "figures/"
 
 # Initialize dimesnions
 n, m, m_out, m_in, batch = 2, 10000, 3000, 7000, 32
