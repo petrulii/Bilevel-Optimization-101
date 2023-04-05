@@ -66,7 +66,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Initialize dimesnions
-n, m, m_out, m_in, batch = 2, 10000, 3000, 7000, 100
+n, m, m_out, m_in, batch = 2, 1000, 300, 700, 10
 # The coefficient tensor of size (n,1) filled with values uniformally sampled from the range (0,1)
 coef = np.array([[1],[1]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
 coef_harm = np.array([[2],[-4]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
