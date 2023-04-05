@@ -42,7 +42,7 @@ class InnerSolution(nn.Module):
     # Optimizer that improves the approximation of a*
     self.dual_optimizer = torch.optim.SGD(self.dual_model.parameters(), lr=0.001)
     self.device = device
-    self.max_epochs = 10
+    self.max_epochs = max_epochs
   
   def __input_check__(self, inner_loss, inner_dataloader, device):
     """
@@ -67,12 +67,12 @@ class InnerSolution(nn.Module):
     opt_inner_val = ArgMinOp.apply(self, mu, X_outer, y_outer)
     return opt_inner_val
 
-  def optimize(self, mu):
+  def optimize(self, mu, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    iter = 0
-    for epoch in range(self.max_epochs):
+    nb_iters, losses, old_loss = 0, [], None
+    for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
         X_inner = X_inner.to(self.device)
@@ -80,19 +80,24 @@ class InnerSolution(nn.Module):
         # Compute prediction and loss
         h_X_i = self.model.forward(X_inner)
         loss = self.inner_loss(mu, h_X_i, y_inner)
+        if not(old_loss is None):
+          if torch.allclose(old_loss, loss):
+            break
         # Backpropagation
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        iter = iter + 1
-    return self.model
+        losses.append(loss)
+        nb_iters += 1
+        old_loss = loss.clone()
+    return nb_iters, losses
   
-  def optimize_dual(self, mu, X_outer, y_outer, outer_grad2):
+  def optimize_dual(self, mu, X_outer, y_outer, outer_grad2, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
-    iter = 0
-    for epoch in range(self.max_epochs):
+    nb_iters, losses, old_loss = 0, [], None
+    for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
         X_inner = X_inner.to(self.device)
@@ -103,12 +108,17 @@ class InnerSolution(nn.Module):
         a_X_o = self.dual_model.forward(X_outer)
         # Here autograd outer_grad2?
         loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
+        if not(old_loss is None):
+          if torch.allclose(old_loss, loss):
+            break
         # Backpropagation
         self.dual_optimizer.zero_grad()
         loss.backward()
         self.dual_optimizer.step()
-        iter = iter + 1
-    return self.dual_model
+        losses.append(loss)
+        nb_iters += 1
+        old_loss = loss.clone()
+    return nb_iters, losses
 
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):
     """
@@ -116,11 +126,6 @@ class InnerSolution(nn.Module):
     """
     hess = self.compute_hessian(mu, h_X_i, y_inner)
     return (1/2)*torch.mean(a_X_i.T @ hess @ a_X_i)+(1/2)*torch.mean(a_X_o.T @ outer_grad2)
-    #TEST
-    #dim = h_X_i.size()[0]
-    #og2 = 1/(dim) * ((h_X_i - torch.reshape(y_inner[:,0], (dim,1))))
-    #return (1/2)*torch.mean(a_X_i.T @ hess @ a_X_i)+(1/2)*torch.mean(a_X_o.T @ og2)
-    #TEST
   
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_val):
     """
@@ -140,7 +145,6 @@ class InnerSolution(nn.Module):
     dim = inner_value.size()[0]
     hess = torch.reshape(hess, (dim, dim))
     return hess
-
 
 
 class ArgMinOp(torch.autograd.Function):

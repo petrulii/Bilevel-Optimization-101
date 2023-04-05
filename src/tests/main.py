@@ -66,7 +66,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Initialize dimesnions
-n, m, m_out, m_in, batch = 2, 10000, 3000, 7000, 100
+n, m, m_out, m_in, batch = 2, 100000, 30000, 70000, 100
 # The coefficient tensor of size (n,1) filled with values uniformally sampled from the range (0,1)
 coef = np.array([[1],[1]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
 coef_harm = np.array([[2],[-4]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
@@ -83,8 +83,8 @@ y = np.hstack((y_main, y_aux1, y_aux2))
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.3, random_state=1)
 # Convert everything to PyTorch tensors
 X_train, X_val, y_train, y_val, coef = (torch.from_numpy(X_train)), (torch.from_numpy(X_val)), (torch.from_numpy(y_train)), (torch.from_numpy(y_val)), (torch.from_numpy(coef))
-X_val_t = X_val.to(device)
-y_val_t = y_val.to(device)
+#X_val_t = X_val.to(device)
+#y_val_t = y_val.to(device)
 print("X shape:", X.shape)
 print("y shape:", y.shape)
 print("True coeficients:", coef)
@@ -92,7 +92,7 @@ print("X training data:", X_train[1:5])
 print("y training labels:", y_train[1:5])
 print()
 
-maxiter = 1
+max_epochs = 1
 mu_0_value = 1.
 mu0 = (torch.full((2,1), mu_0_value)).to(device)
 inner_data = Data(X_train, y_train)
@@ -107,28 +107,20 @@ outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch, shuffle=True
 
 # Objective functions
 MSE = lambda h, X, y: (1/2)*torch.mean(torch.pow((h(X) - y),2)) 
-#fo = lambda mu, h, X_out, y_out: MSE(h,X_out,torch.reshape(y_out[:,0], (len(y_out),1))) + 0*torch.sum(mu)
 fo = lambda mu, h_X_out, y_out: ((1/2)*torch.mean(torch.pow((h_X_out - torch.reshape(y_out[:,0], (len(y_out),1))),2))) + 0*(torch.sum(mu))
-#fi = lambda mu, h, X_in, y_in: MSE(h,X_in,torch.reshape(y_in[:,0], (len(y_in),1))) + mu[0]*MSE(h,X_in,torch.reshape(y_in[:,1], (len(y_in),1))) + mu[1]*MSE(h,X_in,torch.reshape(y_in[:,2], (len(y_in),1)))
 fi = lambda mu, h_X_in, y_in: ((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,0], (len(y_in),1))),2))) + mu[0]*((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,1], (len(y_in),1))),2))) + mu[1]*((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,2], (len(y_in),1))),2)))
 
-# Manual gradients
-#og1 = lambda mu, h, X_out, y_out: torch.full(mu.size(), 0.)
-#og2 = lambda mu, h, X_out, y_out: 1/(X_out.size()[0]) * ((h(X_out) - torch.reshape(y_out[:,0], (len(y_out),1))))
-#ig22 = lambda mu, h, X_in, y_in: 1/(X_in.size()[0]) * (torch.eye(len(y_in)).to(torch.device("cuda")) + mu[0]*(torch.eye(len(y_in)).to(torch.device("cuda"))) + mu[1]*(torch.eye(len(y_in)).to(torch.device("cuda"))))
-#ig12 = lambda mu, h, X_in, y_in: 1/(X_in.size()[0]) * (torch.cat(((h(X_in) - torch.reshape(y_in[:,1], (len(y_in),1))), (h(X_in) - torch.reshape(y_in[:,2], (len(y_in),1)))),1))
-#grads = [og1,og2,ig22,ig12]
-
 # Optimize using neural implicit differention
-bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, device, batch_size=batch, X_val_t=X_val_t, y_val_t=y_val_t)
+bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, device, batch_size=batch)#, X_val_t=X_val_t, y_val_t=y_val_t)
 outer_optimizer = torch.optim.SGD([mu0], lr=0.05)
-n_iters, times, loss_values = bp_neural.optimize(mu0, outer_optimizer, maxiter=maxiter)
+nb_iters, iters, losses, times = bp_neural.optimize(mu0, outer_optimizer, max_epochs=max_epochs)
 
 # Show results
 print("NEURAL IMPLICIT DIFFERENTIATION")
-print("Outer loss values:", loss_values)
+print("Number of iterations:", nb_iters)
+print("Outer variable values:", iters)
+print("Outer loss values:", losses)
 print("Average iteration time:", np.average(times))
-print("Number of iterations:", n_iters)
 print()
 
-plot_loss(figures_dir+"out_loss_NID", loss_values, title="Outer loss of neur. im. diff.")
+plot_loss(figures_dir+"out_loss_NID", losses, title="Outer loss of neur. im. diff.")

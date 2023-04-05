@@ -52,36 +52,37 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def optimize(self, mu, outer_optimizer, maxiter=100):
+  def optimize(self, mu, outer_optimizer, max_epochs=1):
     """
     Find the optimal outer solution.
       param mu: initial value of the outer variable
       param maxiter: maximum number of iterations
     """
-    #enable_grad here (so it's kinda global)?
-    n_iters, losses, times = 0, [], []
-    #mu = list(self.outer_model.parameters())
-    for X_outer, y_outer in self.outer_dataloader:
-      start = time.time()
-      # Move to GPU
-      X_outer = X_outer.to(self.device)
-      y_outer = y_outer.to(self.device)
-      # Inner value corresponds to h*(X_outer)
-      inner_value = self.inner_solution(mu, X_outer, y_outer)
-      # Making sure gradient of mu is computed.
-      mu.requires_grad = True
-      loss = self.outer_loss(mu, inner_value, y_outer)
-      # Backpropagation
-      outer_optimizer.zero_grad()
-      loss.backward()
-      outer_optimizer.step()
-      times.append(time.time() - start)
-      ## TEST
-      tmp_sol = self.inner_solution(mu, self.X_val_t, self.y_val_t)
-      tmp = self.outer_loss(mu, tmp_sol, self.y_val_t)
-      losses.append(tmp)
-      ## TEST
-      outer_optimizer.zero_grad()
-      n_iters += 1
-      print(mu)
-    return n_iters, times, losses
+    nb_iters, iters, losses, times = 0, [], [], []
+    old_loss = None
+    for epoch in range(max_epochs):
+      for X_outer, y_outer in self.outer_dataloader:
+        start = time.time()
+        # Move to GPU
+        X_outer = X_outer.to(self.device)
+        y_outer = y_outer.to(self.device)
+        # Inner value corresponds to h*(X_outer)
+        inner_value = self.inner_solution(mu, X_outer, y_outer)
+        # Making sure gradient of mu is computed.
+        mu.requires_grad = True
+        loss = self.outer_loss(mu, inner_value, y_outer)
+        if not(old_loss is None):
+          if torch.allclose(old_loss, loss):
+            break
+        # Backpropagation
+        outer_optimizer.zero_grad()
+        loss.backward()
+        outer_optimizer.step()
+        times.append(time.time() - start)
+        iters.append(mu)
+        losses.append(loss)
+        nb_iters += 1
+        #tmp_sol = self.inner_solution(mu, self.X_val_t, self.y_val_t)
+        #tmp = self.outer_loss(mu, tmp_sol, self.y_val_t)
+        old_loss = loss.clone()
+    return nb_iters, iters, losses, times
