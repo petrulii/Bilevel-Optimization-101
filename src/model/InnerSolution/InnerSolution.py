@@ -2,17 +2,10 @@ import sys
 import torch
 import torch.nn as nn
 from torch import autograd
-from torch.autograd import grad
 from torch.autograd.functional import hessian
-import random
-import numpy as np
-from sklearn.model_selection import train_test_split
 
 # Add main project directory path
-sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src/')
-
-from model.utils import set_seed
-from model.utils import plot_1D_iterations, plot_2D_functions, plot_loss
+sys.path.append('/home/ipetruli/Bureau/bilevel-optimization/src')
 
 
 
@@ -38,11 +31,10 @@ class InnerSolution(nn.Module):
     # Neural network to approximate the function a*
     self.dual_model = (NeuralNetworkDualModel(layer_sizes)).to(device)
     # Optimizer that improves the approximation of h*
-    self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.001)
+    self.optimizer = torch.optim.SGD(self.model.parameters(), lr=0.01)
     # Optimizer that improves the approximation of a*
-    self.dual_optimizer = torch.optim.SGD(self.dual_model.parameters(), lr=0.001)
+    self.dual_optimizer = torch.optim.SGD(self.dual_model.parameters(), lr=0.01)
     self.device = device
-    self.max_epochs = max_epochs
   
   def __input_check__(self, inner_loss, inner_dataloader, device):
     """
@@ -71,7 +63,7 @@ class InnerSolution(nn.Module):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    nb_iters, losses, old_loss = 0, [], None
+    nb_iters, losses = 0, []
     for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
@@ -80,23 +72,19 @@ class InnerSolution(nn.Module):
         # Compute prediction and loss
         h_X_i = self.model.forward(X_inner)
         loss = self.inner_loss(mu, h_X_i, y_inner)
-        if not(old_loss is None):
-          if torch.allclose(old_loss, loss):
-            break
         # Backpropagation
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        losses.append(loss)
+        losses.append(loss.data)
         nb_iters += 1
-        old_loss = loss.clone()
     return nb_iters, losses
   
   def optimize_dual(self, mu, X_outer, y_outer, outer_grad2, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
-    nb_iters, losses, old_loss = 0, [], None
+    nb_iters, losses = 0, []
     for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
@@ -108,33 +96,31 @@ class InnerSolution(nn.Module):
         a_X_o = self.dual_model.forward(X_outer)
         # Here autograd outer_grad2?
         loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
-        if not(old_loss is None):
-          if torch.allclose(old_loss, loss):
-            break
         # Backpropagation
         self.dual_optimizer.zero_grad()
         loss.backward()
         self.dual_optimizer.step()
-        losses.append(loss)
+        losses.append(loss.data)
         nb_iters += 1
-        old_loss = loss.clone()
     return nb_iters, losses
 
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):
     """
     Loss function for optimizing a*.
     """
-    hess = self.compute_hessian(mu, h_X_i, y_inner)
-    return (1/2)*torch.mean(a_X_i.T @ hess @ a_X_i)+(1/2)*torch.mean(a_X_o.T @ outer_grad2)
-  
+    f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_inner)
+    v = (mu.detach().clone()*0, a_X_i)
+    hessvp = autograd.functional.hvp(f, (mu, h_X_i), v)[1][1]
+    return (1/2)*torch.mean(a_X_i.T @ hessvp)+(1/2)*torch.mean(a_X_o.T @ outer_grad2)
+
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_val):
     """
     Computing B*a where a is dual_val=a(X_outer) and B is the functional derivative delta_mu delta_h g(mu,h*).
     """
     f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_outer)
-    hess = autograd.functional.hessian(f, (mu, inner_value))[0][1]
-    B = torch.reshape(hess, (mu.size()[0], inner_value.size()[0])).T
-    return B.T @ dual_val
+    v = (mu.detach().clone()*0, dual_val)
+    hessvp = autograd.functional.hvp(f, (mu, inner_value), v)[1][0]
+    return hessvp
 
   def compute_hessian(self, mu, inner_value, y_inner):
     """

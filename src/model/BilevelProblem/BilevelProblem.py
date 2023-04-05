@@ -1,16 +1,11 @@
 import sys
-import math
 import time
-import random
-import numpy as np
 import torch
 
 # Add main project directory path
-sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src/')
+sys.path.append('/home/ipetruli/Bureau/bilevel-optimization/src')
 
-from model.utils import set_seed
 from model.InnerSolution.InnerSolution import InnerSolution
-from model.utils import plot_1D_iterations, plot_2D_functions, plot_loss
 
 
 class BilevelProblem:
@@ -60,16 +55,17 @@ class BilevelProblem:
     """
     nb_iters, iters, losses, times = 0, [], [], []
     old_loss = None
+    # Making sure gradient of mu is computed.
+    mu.requires_grad = True
     for epoch in range(max_epochs):
       for X_outer, y_outer in self.outer_dataloader:
         start = time.time()
+        iters.append(torch.flatten(mu.detach().clone()))
         # Move to GPU
         X_outer = X_outer.to(self.device)
         y_outer = y_outer.to(self.device)
         # Inner value corresponds to h*(X_outer)
         inner_value = self.inner_solution(mu, X_outer, y_outer)
-        # Making sure gradient of mu is computed.
-        mu.requires_grad = True
         loss = self.outer_loss(mu, inner_value, y_outer)
         if not(old_loss is None):
           if torch.allclose(old_loss, loss):
@@ -79,10 +75,12 @@ class BilevelProblem:
         loss.backward()
         outer_optimizer.step()
         times.append(time.time() - start)
-        iters.append(mu)
-        losses.append(loss)
+        #losses.append(loss.data)
+        #test
+        tmp_sol = self.inner_solution(mu, self.X_val_t, self.y_val_t)
+        tmp = self.outer_loss(mu, tmp_sol, self.y_val_t)
+        losses.append(tmp)
+        #test
         nb_iters += 1
-        #tmp_sol = self.inner_solution(mu, self.X_val_t, self.y_val_t)
-        #tmp = self.outer_loss(mu, tmp_sol, self.y_val_t)
         old_loss = loss.clone()
     return nb_iters, iters, losses, times
