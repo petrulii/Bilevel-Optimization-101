@@ -78,7 +78,7 @@ def plot_loss(figname, loss_values, title="Step-wise Loss", labels=None):
     Plot the loss value over iterations.
     	param loss_values: list of values to be plotted
     """
-    loss_values = [tensor.item() for tensor in loss_values]
+    #loss_values = [tensor.item() for tensor in loss_values]
     ticks = np.arange(0, len(loss_values), 1)
     fig, ax = plt.subplots(figsize=(4,3))
     plt.plot(ticks, loss_values)

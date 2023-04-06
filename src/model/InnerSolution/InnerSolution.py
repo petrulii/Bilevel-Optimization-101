@@ -5,7 +5,7 @@ from torch import autograd
 from torch.autograd.functional import hessian
 
 # Add main project directory path
-sys.path.append('/home/ipetruli/Bureau/bilevel-optimization/src')
+sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
 
 
@@ -63,7 +63,7 @@ class InnerSolution(nn.Module):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    nb_iters, losses = 0, []
+    running_loss, nb_iters, losses = 0, 0, []
     for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
@@ -76,15 +76,16 @@ class InnerSolution(nn.Module):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        losses.append(loss.data)
+        running_loss += loss.item()
         nb_iters += 1
+        losses.append(running_loss/nb_iters)
     return nb_iters, losses
   
   def optimize_dual(self, mu, X_outer, y_outer, outer_grad2, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
-    nb_iters, losses = 0, []
+    running_loss, nb_iters, losses = 0, 0, []
     for epoch in range(max_epochs):
       for X_inner, y_inner in self.inner_dataloader:
         # Move to GPU
@@ -100,8 +101,9 @@ class InnerSolution(nn.Module):
         self.dual_optimizer.zero_grad()
         loss.backward()
         self.dual_optimizer.step()
-        losses.append(loss.data)
+        running_loss += loss.item()
         nb_iters += 1
+        losses.append(running_loss/nb_iters)
     return nb_iters, losses
 
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):

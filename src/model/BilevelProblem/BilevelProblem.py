@@ -3,7 +3,7 @@ import time
 import torch
 
 # Add main project directory path
-sys.path.append('/home/ipetruli/Bureau/bilevel-optimization/src')
+sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
 from model.InnerSolution.InnerSolution import InnerSolution
 
@@ -13,7 +13,7 @@ class BilevelProblem:
   Instanciates the bilevel problem and solves it using Neural Implicit Differentiation.
   """
 
-  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, device, batch_size=64, X_val_t=None, y_val_t=None):
+  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, device, batch_size=64):
     """
     Init method.
       param outer_loss: outer level loss function
@@ -31,8 +31,6 @@ class BilevelProblem:
     self.batch_size = batch_size
     self.device = device
     self.inner_solution = InnerSolution(inner_loss, inner_dataloader, device)
-    self.X_val_t=X_val_t
-    self.y_val_t=y_val_t
 
   def __input_check__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, device, batch_size):
     """
@@ -53,8 +51,7 @@ class BilevelProblem:
       param mu: initial value of the outer variable
       param maxiter: maximum number of iterations
     """
-    nb_iters, iters, losses, times = 0, [], [], []
-    old_loss = None
+    running_loss, nb_iters, iters, losses, times = 0, 0, [], [], []
     # Making sure gradient of mu is computed.
     mu.requires_grad = True
     for epoch in range(max_epochs):
@@ -67,20 +64,12 @@ class BilevelProblem:
         # Inner value corresponds to h*(X_outer)
         inner_value = self.inner_solution(mu, X_outer, y_outer)
         loss = self.outer_loss(mu, inner_value, y_outer)
-        if not(old_loss is None):
-          if torch.allclose(old_loss, loss):
-            break
         # Backpropagation
         outer_optimizer.zero_grad()
         loss.backward()
         outer_optimizer.step()
         times.append(time.time() - start)
-        #losses.append(loss.data)
-        #test
-        tmp_sol = self.inner_solution(mu, self.X_val_t, self.y_val_t)
-        tmp = self.outer_loss(mu, tmp_sol, self.y_val_t)
-        losses.append(tmp)
-        #test
+        running_loss += loss.item()
         nb_iters += 1
-        old_loss = loss.clone()
+        losses.append(running_loss/nb_iters)
     return nb_iters, iters, losses, times
