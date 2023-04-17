@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from torch import autograd
 from torch.autograd import grad
+from torch.func import functional_call
 from torch.autograd.functional import hessian
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
@@ -16,7 +17,10 @@ sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
 from model.InnerSolution.InnerSolution import InnerSolution
 from model.BilevelProblem.BilevelProblem import BilevelProblem
-from model.utils import set_seed, plot_loss
+from model.NeuralNetworks.NeuralNetworkOuterModel import NeuralNetworkOuterModel
+from model.NeuralNetworks.NeuralNetworkInnerModel import NeuralNetworkInnerModel
+from model.NeuralNetworks.NeuralNetworkInnerDualModel import NeuralNetworkInnerDualModel
+from model.utils import set_seed, plot_loss, tensor_to_state_dict
 
 class Data(Dataset):
 	"""
@@ -66,7 +70,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Initialize dimesnions
-n, m, m_out, m_in, batch = 2, 1000000, 300000, 700000, 1000
+n, m, m_out, m_in, batch = 2, 100000, 30000, 70000, 1000
 # The coefficient tensor of size (n,1) filled with values uniformally sampled from the range (0,1)
 coef = np.array([[1],[1]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
 coef_harm = np.array([[2],[-4]]).astype('float32')#np.random.uniform(size=(n,1)).astype('float32')
@@ -103,15 +107,37 @@ outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch, shuffle=True
 ############ NEURAL IMPLICIT DIFFERENTIATION ############
 #########################################################
 
-# Objective functions
-MSE = lambda h, X, y: (1/2)*torch.mean(torch.pow((h(X) - y),2)) 
-fo = lambda mu, h_X_out, y_out: ((1/2)*torch.mean(torch.pow((h_X_out - torch.reshape(y_out[:,0], (len(y_out),1))),2))) + 0*(torch.sum(mu))
-fi = lambda mu, h_X_in, y_in: ((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,0], (len(y_in),1))),2))) + mu[0]*((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,1], (len(y_in),1))),2))) + mu[1]*((1/2)*torch.mean(torch.pow((h_X_in - torch.reshape(y_in[:,2], (len(y_in),1))),2)))
+# Inner model
+layer_sizes = [2, 10, 20, 10, 1]
+# Neural network to approximate the function h*
+inner_model = (NeuralNetworkInnerModel(layer_sizes)).to(device)
+# Optimizer that improves the approximation of h*
+inner_optimizer = torch.optim.SGD(inner_model.parameters(), lr=0.01)
+
+# Inner dual model
+# Neural network to approximate the function a*
+inner_dual_model = (NeuralNetworkInnerDualModel(layer_sizes)).to(device)
+# Optimizer that improves the approximation of a*
+inner_dual_optimizer = torch.optim.SGD(inner_dual_model.parameters(), lr=0.01)
+
+# Outer model
+layer_sizes = [2, 1]
+# The outer neural network parametrized by the outer variable mu
+outer_model = (NeuralNetworkOuterModel(layer_sizes)).to(device)
+# Optimizer that improves the outer variable mu
+outer_optimizer = torch.optim.SGD([mu0], lr=0.1)
+
+# Gather all models
+inner_models = (inner_model, inner_optimizer, inner_dual_model, inner_dual_optimizer)
+outer_models = (outer_model, outer_optimizer)
+
+# Objective functions 
+fo = lambda mu, inner_value, y_out: ((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_out[:,0], (len(y_out),1))),2))) + 0*functional_call(outer_model, tensor_to_state_dict(outer_model, mu), torch.hstack((((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_out[:,1], (len(y_out),1))),2))),((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_out[:,2], (len(y_out),1))),2))))))
+fi = lambda mu, inner_value, y_in: ((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_in[:,0], (len(y_in),1))),2))) + functional_call(outer_model, tensor_to_state_dict(outer_model, mu), torch.hstack((((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_in[:,1], (len(y_in),1))),2))),((1/2)*torch.mean(torch.pow((inner_value - torch.reshape(y_in[:,2], (len(y_in),1))),2))))))
 
 # Optimize using neural implicit differention
-bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, device, batch_size=batch)
-outer_optimizer = torch.optim.SGD([mu0], lr=0.1)
-nb_iters, iters, losses, times = bp_neural.optimize(mu0, outer_optimizer, max_epochs=max_epochs)
+bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch)
+nb_iters, iters, losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs)
 
 # Show results
 print("NEURAL IMPLICIT DIFFERENTIATION")
