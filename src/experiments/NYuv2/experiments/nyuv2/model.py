@@ -110,9 +110,8 @@ class SegNetSplit(nn.Module):
         t3_pred = self.pred_task3(g_decoder[i][1])
         t3_pred = t3_pred / torch.norm(t3_pred, p=2, dim=1, keepdim=True)
 
-        out = [t1_pred, t2_pred, t3_pred]
 
         if self.logsigma is not None:
-            return out, self.logsigma
+            return t1_pred, t2_pred, t3_pred, self.logsigma
         else:
-            return out
+            return t1_pred, t2_pred, t3_pred

@@ -77,22 +77,28 @@ def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles
   ax2.set_ylabel("f(\mu)")
   plt.savefig(figname+".png")
 
-def plot_loss(figname, loss_values, title="Step-wise Loss", labels=None):
+def plot_loss(figname, train_loss, val_loss, test_loss, title="Segmentation"):
   """
   Plot the loss value over iterations.
-    param loss_values: list of values to be plotted
+    param figname: name of the figure
+    param train_loss: list of train loss values
+    param aux_loss: list of auxiliary loss values
+    param test_loss: list of test loss values
   """
-  #loss_values = [tensor.item() for tensor in loss_values]
-  ticks = np.arange(0, len(loss_values), 1)
-  fig, ax = plt.subplots(figsize=(4,3))
-  plt.plot(ticks, loss_values)
+  # Generate a sequence of integers to represent the epoch numbers
+  epochs = len(train_loss)
+  ticks = np.arange(0, epochs, 1)
+  plt.xticks(ticks=ticks) 
+  # Plot and label the training and validation loss values
+  plt.plot(ticks, train_loss, label='Outer Loss')
+  plt.plot(ticks, val_loss, label='Inner Loss')
+  plt.plot(ticks, test_loss, label='Test Loss')  
+  # Add in a title and axes labels
   plt.title(title)
-  n_ticks = len(ticks)
-  if n_ticks > 10:
-    labels = ['']*n_ticks
-  plt.xticks(ticks=ticks, labels=labels)
-  plt.xlabel("Epochs")
-  plt.ylabel("Loss")
+  plt.xlabel('Epochs')
+  plt.ylabel('Loss')   
+  # Save the plot
+  plt.legend(loc='best')
   plt.savefig(figname+".png")
 
 def sample_X(X, n):
@@ -138,6 +144,8 @@ def tensor_to_state_dict(model, params, device):
   start = 0
   current_dict = model.state_dict()
   for name, param in model.named_parameters():
+    if name == 'layer_1.bias':
+      break
     dim = torch.tensor(param.size())
     length = torch.prod(dim, 0)
     dim = dim.tolist()

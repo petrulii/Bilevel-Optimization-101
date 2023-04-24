@@ -23,8 +23,10 @@ class InnerSolution(nn.Module):
     super(InnerSolution, self).__init__()
     self.inner_loss = inner_loss
     self.inner_dataloader = inner_dataloader
-    self.model, self.optimizer, self.dual_model, self.dual_optimizer = inner_models
+    self.model, self.optimizer, self.scheduler, self.dual_model, self.dual_optimizer, self.dual_scheduler = inner_models
     self.device = device
+    self.loss = 0
+    self.dual_loss = 0
   
   def forward(self, mu, X_outer, y_outer):
     """
@@ -38,11 +40,11 @@ class InnerSolution(nn.Module):
     opt_inner_val = ArgMinOp.apply(self, mu, X_outer, y_outer)
     return opt_inner_val
 
-  def optimize(self, mu, max_epochs=1):
+  def optimize(self, mu, max_epochs=1, max_iters=50):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    running_loss, nb_iters, losses = 0, 0, []
+    epoch_loss, epoch_iters = 0, 0
     for epoch in range(max_epochs):
       #for X_inner, y_inner in self.inner_dataloader:
       # _____NYUv2 start_____
@@ -69,18 +71,18 @@ class InnerSolution(nn.Module):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        running_loss += loss.item()
-        nb_iters += 1
-        losses.append(running_loss/nb_iters)
-        if nb_iters >= 3:#test
+        epoch_loss += loss.item()
+        epoch_iters += 1
+        if epoch_iters >= max_iters:
           break
-    return nb_iters, losses
+      self.scheduler.step()
+      self.loss = epoch_loss/epoch_iters
   
-  def optimize_dual(self, mu, X_outer, y_outer, outer_grad2, max_epochs=1):
+  def optimize_dual(self, mu, X_outer, y_outer, outer_grad2, max_epochs=1, max_iters=50):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
-    running_loss, nb_iters, losses = 0, 0, []
+    epoch_loss, epoch_iters = 0, 0
     for epoch in range(max_epochs):
       #for X_inner, y_inner in self.inner_dataloader:
       # _____NYUv2 start_____
@@ -109,12 +111,12 @@ class InnerSolution(nn.Module):
         self.dual_optimizer.zero_grad()
         loss.backward()
         self.dual_optimizer.step()
-        running_loss += loss.item()
-        nb_iters += 1
-        losses.append(running_loss/nb_iters)
-        if nb_iters >= 3:#test
+        epoch_loss += loss.item()
+        epoch_iters += 1
+        if epoch_iters >= max_iters:
           break
-    return nb_iters, losses
+      self.dual_scheduler.step()
+      self.dual_loss = epoch_loss/epoch_iters
 
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):
     """
@@ -132,15 +134,16 @@ class InnerSolution(nn.Module):
     if not(type(outer_grad2) is tuple):
       outer_grad2 = (outer_grad2,)
     # Specifying the inner objective as a function of h*(X)
-    f = lambda h_X: self.inner_loss(mu, h_X, y_inner)
+    #f = lambda h_X: self.inner_loss(mu, h_X, y_inner)
+    f = lambda item1, item2, item3: self.inner_loss(mu, (item1, item2, item3), y_inner)
     # Find the product with the hessian wrt h*(X)
     hessvp = autograd.functional.hvp(f, h_X_i, a_X_i)[1]
     # Compute the loss
     term1, term2 = 0, 0
     for i in range(nb_items):
-      term1 += torch.einsum('ij,ij->',a_X_i[i],hessvp[i])
+      term1 += torch.einsum('ijkl,ijkl->',a_X_i[i],hessvp[i])
     for i in range(nb_items):
-      term2 += torch.einsum('ij,ij->',a_X_o[i],outer_grad2[i])
+      term2 += torch.einsum('ijkl,ijkl->',a_X_o[i],outer_grad2[i])
     return (1/2)*term1+(1/2)*term2
 
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_val):
@@ -148,7 +151,8 @@ class InnerSolution(nn.Module):
     Computing B*a where a is dual_val=a(X_outer) and B is the functional derivative delta_mu delta_h g(mu,h*).
     """
     # Specifying the inner objective as a function of mu and h*(X)
-    f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_outer)
+    #f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_outer)
+    f = lambda mu, item1, item2, item3: self.inner_loss(mu, (item1, item2, item3), y_outer)
     # Make sure a*(X) is a tuple, if not, wrap as tuple.
     if not(type(dual_val) is tuple):
       dual_val = (dual_val,)
@@ -156,7 +160,7 @@ class InnerSolution(nn.Module):
     if not(type(inner_value) is tuple):
       inner_value = (inner_value,)
     # Here v has to be a tuple, so we concatinate mu with a*(X).
-    v = (mu.detach().clone()*0,) + dual_val
+    v = (torch.zeros_like(mu),) + dual_val
     # Here args has to be a tuple, so we concatinate mu with h*(X).
     args = (mu,) + inner_value
     # Similar to H_loss eigsum
@@ -190,10 +194,11 @@ class ArgMinOp(torch.autograd.Function):
     return inner_value
 
   @staticmethod
-  def backward(ctx, outer_grad2):
+  def backward(ctx, outer_grad2_0, outer_grad2_1, outer_grad2_2):
     """
     Backward pass of a function that approximates h* for Neur. Imp. Diff.
     """
+    outer_grad2 = (outer_grad2_0, outer_grad2_1, outer_grad2_2)
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution
     inner_value = ctx.inner_value
