@@ -13,4 +13,5 @@ class NeuralNetworkOuterModel(nn.Module):
 
   def forward(self, x):
     x = self.layer_1(x)
-    return x
+    Rel = torch.nn.ReLU()
+    return Rel(x)

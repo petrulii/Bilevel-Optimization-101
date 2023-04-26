@@ -4,6 +4,8 @@ import torch.nn as nn
 from torch import autograd
 from torch.autograd.functional import hessian
 
+from model.utils import get_memory_info
+
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
@@ -34,7 +36,6 @@ class InnerSolution(nn.Module):
       param mu: the current outer variable
       param X_outer: the outer data that the dual model needs access to
     """
-    #with torch.enable_grad():
     # We use an intermediate ArgMinOp because we can only write a custom backward for functions
     # of type torch.autograd.Function, nn.Module doesn't allow to custumize the backward.
     opt_inner_val = ArgMinOp.apply(self, mu, X_outer, y_outer)
@@ -47,23 +48,11 @@ class InnerSolution(nn.Module):
     epoch_loss, epoch_iters = 0, 0
     for epoch in range(max_epochs):
       #for X_inner, y_inner in self.inner_dataloader:
-      # _____NYUv2 start_____
       for item in self.inner_dataloader:
+        # Move data to GPU
         eval_data, eval_label, eval_depth, eval_normal = item
-        X_inner = eval_data
-        y_inner = (eval_label, eval_depth, eval_normal)
-      # _____NYUv2 end_____
-        # Move to GPU
-        X_inner = X_inner.to(self.device)
-        if type(y_inner) is tuple:
-          nb_items = len(y_inner)
-          for i in range(nb_items):
-            l = list(y_inner)
-            l[i] = l[i].type(torch.LongTensor)
-            l[i] = l[i].to(self.device)
-            y_inner = tuple(l)
-        else:
-          y_inner = y_inner.to(self.device)
+        X_inner = eval_data.to(self.device)
+        y_inner = (eval_label.to(self.device), eval_depth.to(self.device), eval_normal.to(self.device))
         # Compute prediction and loss
         h_X_i = self.model.forward(X_inner)
         loss = self.inner_loss(mu, h_X_i, y_inner)
@@ -85,26 +74,14 @@ class InnerSolution(nn.Module):
     epoch_loss, epoch_iters = 0, 0
     for epoch in range(max_epochs):
       #for X_inner, y_inner in self.inner_dataloader:
-      # _____NYUv2 start_____
       for item in self.inner_dataloader:
+        # Move data to GPU
         eval_data, eval_label, eval_depth, eval_normal = item
-        X_inner = eval_data
-        y_inner = (eval_label, eval_depth, eval_normal)
-      # _____NYUv2 end_____
-        # Move to GPU
-        X_inner = X_inner.to(self.device)
-        if type(y_inner) is tuple:
-          nb_items = len(y_inner)
-          for i in range(nb_items):
-            l = list(y_inner)
-            l[i] = l[i].type(torch.LongTensor)
-            l[i] = l[i].to(self.device)
-            y_inner = tuple(l)
-        else:
-          y_inner = y_inner.to(self.device)
+        X_inner = eval_data.to(self.device)
+        y_inner = (eval_label.to(self.device), eval_depth.to(self.device), eval_normal.to(self.device))
         # Compute prediction and loss
         a_X_i = self.dual_model.forward(X_inner)
-        h_X_i = self.model.forward(X_inner)
+        h_X_i = (self.model.forward(X_inner))
         a_X_o = self.dual_model.forward(X_outer)
         loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
         # Backpropagation
@@ -127,12 +104,12 @@ class InnerSolution(nn.Module):
       a_X_i = (a_X_i,)
     if not(type(a_X_o) is tuple):
       a_X_o = (a_X_o,)
-    nb_items = len(a_X_i)
     # Make sure h*(X) is a tuple, if not, wrap as tuple.
     if not(type(h_X_i) is tuple):
       h_X_i = (h_X_i,)
     if not(type(outer_grad2) is tuple):
       outer_grad2 = (outer_grad2,)
+    nb_items = len(h_X_i)
     # Specifying the inner objective as a function of h*(X)
     #f = lambda h_X: self.inner_loss(mu, h_X, y_inner)
     f = lambda item1, item2, item3: self.inner_loss(mu, (item1, item2, item3), y_inner)
@@ -141,26 +118,31 @@ class InnerSolution(nn.Module):
     # Compute the loss
     term1, term2 = 0, 0
     for i in range(nb_items):
-      term1 += torch.einsum('ijkl,ijkl->',a_X_i[i],hessvp[i])
+      term1 += torch.einsum('ijkl,ijkl->i', a_X_i[i], hessvp[i])
     for i in range(nb_items):
-      term2 += torch.einsum('ijkl,ijkl->',a_X_o[i],outer_grad2[i])
-    return (1/2)*term1+(1/2)*term2
+      term2 += torch.einsum('ijkl,ijkl->i',a_X_o[i], outer_grad2[i])
+    return (1/2)*(torch.mean(term1)+torch.mean(term2))
 
-  def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_val):
+
+  def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_value):
     """
-    Computing B*a where a is dual_val=a(X_outer) and B is the functional derivative delta_mu delta_h g(mu,h*).
+    Computing B*a where a is dual_value=a(X_outer) and B is the functional derivative delta_mu delta_h g(mu,h*).
     """
     # Specifying the inner objective as a function of mu and h*(X)
     #f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_outer)
     f = lambda mu, item1, item2, item3: self.inner_loss(mu, (item1, item2, item3), y_outer)
     # Make sure a*(X) is a tuple, if not, wrap as tuple.
-    if not(type(dual_val) is tuple):
-      dual_val = (dual_val,)
+    if not(type(dual_value) is tuple):
+      dual_value = (dual_value,)
     # Make sure h*(X) is a tuple, if not, wrap as tuple.
     if not(type(inner_value) is tuple):
       inner_value = (inner_value,)
+    for item in dual_value:
+      item.detach()
+    for item in inner_value:
+      item.detach()
     # Here v has to be a tuple, so we concatinate mu with a*(X).
-    v = (torch.zeros_like(mu),) + dual_val
+    v = (torch.zeros_like(mu),) + dual_value
     # Here args has to be a tuple, so we concatinate mu with h*(X).
     args = (mu,) + inner_value
     # Similar to H_loss eigsum
@@ -187,10 +169,11 @@ class ArgMinOp(torch.autograd.Function):
     inner_value = inner_solution.model(X_outer)
     # Context ctx allows to communicate from forward to backward
     ctx.inner_solution = inner_solution
-    ctx.inner_value = inner_value
-    ctx.mu = mu
-    ctx.X_outer = X_outer
-    ctx.y_outer = y_outer
+    #ctx.inner_value = inner_value
+    #ctx.mu = mu
+    #ctx.X_outer = X_outer
+    #ctx.y_outer = y_outer
+    ctx.save_for_backward(mu, X_outer, y_outer[0], y_outer[1], y_outer[2], inner_value[0], inner_value[1], inner_value[2])
     return inner_value
 
   @staticmethod
@@ -201,10 +184,13 @@ class ArgMinOp(torch.autograd.Function):
     outer_grad2 = (outer_grad2_0, outer_grad2_1, outer_grad2_2)
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution
-    inner_value = ctx.inner_value
-    mu = ctx.mu
-    X_outer = ctx.X_outer
-    y_outer = ctx.y_outer
+    #inner_value = ctx.inner_value
+    #mu = ctx.mu
+    #X_outer = ctx.X_outer
+    #y_outer = ctx.y_outer
+    mu, X_outer, y_outer_0, y_outer_1, y_outer_2, inner_value_0, inner_value_1, inner_value_2 = ctx.saved_tensors
+    y_outer = (y_outer_0, y_outer_1, y_outer_2)
+    inner_value = (inner_value_0, inner_value_1, inner_value_2)
     # Need to enable_grad because we use autograd in optimize_dual (disabled in backward() by default).
     with torch.enable_grad():
       # Here the model approximating a* needs to be trained on the same X_inner batches

@@ -1,0 +1,196 @@
+All good, switching to GPUs.
+Memory after inner model to cuda
+Reserved memory: 201326592
+Allocated memory: 175830528
+Memory after dual inner model to cuda
+Reserved memory: 381681664
+Allocated memory: 353496064
+Initial memory state:
+Reserved memory: 381681664
+Allocated memory: 353497600
+
+Outer iteration: 0 | 10
+Outer iteration avg. loss: 1.9391045570373535
+Inner iteration avg. loss: 3.060430407524109
+Inner dual iteration avg. loss: 0.18742431700229645
+Test avg. loss: 1.6713271498680116
+Test avg. acc.: tensor(0.3766)
+Outer variable: tensor([[0.9985],
+        [0.9949]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 1 | 20
+Outer iteration avg. loss: 1.5578832387924195
+Inner iteration avg. loss: 2.728864550590515
+Inner dual iteration avg. loss: 0.18044798076152802
+Test avg. loss: 1.5958939433097838
+Test avg. acc.: tensor(0.3893)
+Outer variable: tensor([[0.9969],
+        [0.9855]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 2 | 30
+Outer iteration avg. loss: 1.4763779401779176
+Inner iteration avg. loss: 2.5694252252578735
+Inner dual iteration avg. loss: 0.16756314039230347
+Test avg. loss: 1.5390241742134094
+Test avg. acc.: tensor(0.4050)
+Outer variable: tensor([[0.9957],
+        [0.9744]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 3 | 40
+Outer iteration avg. loss: 1.4135006189346313
+Inner iteration avg. loss: 2.502133512496948
+Inner dual iteration avg. loss: 0.18380527198314667
+Test avg. loss: 1.4869802951812745
+Test avg. acc.: tensor(0.4232)
+Outer variable: tensor([[0.9941],
+        [0.9629]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 4 | 50
+Outer iteration avg. loss: 1.4140943884849548
+Inner iteration avg. loss: 2.3536170721054077
+Inner dual iteration avg. loss: 0.16429834067821503
+Test avg. loss: 1.3892813205718995
+Test avg. acc.: tensor(0.4374)
+Outer variable: tensor([[0.9924],
+        [0.9513]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 5 | 60
+Outer iteration avg. loss: 1.3349650144577025
+Inner iteration avg. loss: 2.0737773418426513
+Inner dual iteration avg. loss: 0.18226245045661926
+Test avg. loss: 1.309523093700409
+Test avg. acc.: tensor(0.4738)
+Outer variable: tensor([[0.9908],
+        [0.9393]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 6 | 70
+Outer iteration avg. loss: 1.3120773673057555
+Inner iteration avg. loss: 1.9527135372161866
+Inner dual iteration avg. loss: 0.17464640736579895
+Test avg. loss: 1.4001901745796204
+Test avg. acc.: tensor(0.4809)
+Outer variable: tensor([[0.9895],
+        [0.9270]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 7 | 80
+Outer iteration avg. loss: 1.321991240978241
+Inner iteration avg. loss: 1.8694820404052734
+Inner dual iteration avg. loss: 0.18192654848098755
+Test avg. loss: 1.3557206034660338
+Test avg. acc.: tensor(0.4870)
+Outer variable: tensor([[0.9887],
+        [0.9150]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 8 | 90
+Outer iteration avg. loss: 1.2840681433677674
+Inner iteration avg. loss: 1.802083146572113
+Inner dual iteration avg. loss: 0.19584921002388
+Test avg. loss: 1.387503731250763
+Test avg. acc.: tensor(0.4966)
+Outer variable: tensor([[0.9874],
+        [0.9030]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 9 | 100
+Outer iteration avg. loss: 1.264473956823349
+Inner iteration avg. loss: 1.6533677935600282
+Inner dual iteration avg. loss: 0.16572993993759155
+Test avg. loss: 1.3307355403900147
+Test avg. acc.: tensor(0.5098)
+Outer variable: tensor([[0.9870],
+        [0.8913]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 10 | 110
+Outer iteration avg. loss: 1.2672180652618408
+Inner iteration avg. loss: 1.4768410563468932
+Inner dual iteration avg. loss: 0.17910848557949066
+Test avg. loss: 1.3986809968948364
+Test avg. acc.: tensor(0.5087)
+Outer variable: tensor([[0.9864],
+        [0.8854]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 11 | 120
+Outer iteration avg. loss: 1.274658727645874
+Inner iteration avg. loss: 1.4355498552322388
+Inner dual iteration avg. loss: 0.16873058676719666
+Test avg. loss: 1.3702510714530944
+Test avg. acc.: tensor(0.5258)
+Outer variable: tensor([[0.9861],
+        [0.8793]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 12 | 130
+Outer iteration avg. loss: 1.2870663166046143
+Inner iteration avg. loss: 1.3506264448165894
+Inner dual iteration avg. loss: 0.18431252241134644
+Test avg. loss: 1.42719886302948
+Test avg. acc.: tensor(0.5130)
+Outer variable: tensor([[0.9856],
+        [0.8734]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 13 | 140
+Outer iteration avg. loss: 1.3387217760086059
+Inner iteration avg. loss: 1.2840773344039917
+Inner dual iteration avg. loss: 0.1909155249595642
+Test avg. loss: 1.4405111908912658
+Test avg. acc.: tensor(0.5049)
+Outer variable: tensor([[0.9853],
+        [0.8673]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 14 | 150
+Outer iteration avg. loss: 1.3919007778167725
+Inner iteration avg. loss: 1.2309579610824586
+Inner dual iteration avg. loss: 0.18688426911830902
+Test avg. loss: 1.49599689245224
+Test avg. acc.: tensor(0.5167)
+Outer variable: tensor([[0.9849],
+        [0.8615]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 15 | 160
+Outer iteration avg. loss: 1.4185908794403077
+Inner iteration avg. loss: 1.175480353832245
+Inner dual iteration avg. loss: 0.19741886854171753
+Test avg. loss: 1.5008229255676269
+Test avg. acc.: tensor(0.5106)
+Outer variable: tensor([[0.9844],
+        [0.8556]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 16 | 170
+Outer iteration avg. loss: 1.4116740584373475
+Inner iteration avg. loss: 1.044201946258545
+Inner dual iteration avg. loss: 0.1908259093761444
+Test avg. loss: 1.5691198825836181
+Test avg. acc.: tensor(0.5177)
+Outer variable: tensor([[0.9840],
+        [0.8496]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 17 | 180
+Outer iteration avg. loss: 1.4153685927391053
+Inner iteration avg. loss: 1.0351881325244903
+Inner dual iteration avg. loss: 0.18106277287006378
+Test avg. loss: 1.6323170900344848
+Test avg. acc.: tensor(0.5028)
+Outer variable: tensor([[0.9837],
+        [0.8436]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 18 | 190
+Outer iteration avg. loss: 1.4473430395126343
+Inner iteration avg. loss: 1.0441818296909333
+Inner dual iteration avg. loss: 0.18492692708969116
+Test avg. loss: 1.5646204590797423
+Test avg. acc.: tensor(0.5083)
+Outer variable: tensor([[0.9833],
+        [0.8377]], device='cuda:0', requires_grad=True)
+
+Outer iteration: 19 | 200
+Outer iteration avg. loss: 1.4746851682662965
+Inner iteration avg. loss: 1.0389785468578339
+Inner dual iteration avg. loss: 0.1852179616689682
+Test avg. loss: 1.6511568546295166
+Test avg. acc.: tensor(0.5098)
+Outer variable: tensor([[0.9831],
+        [0.8315]], device='cuda:0', requires_grad=True)
+Number of iterations: 200
+Average iteration time: 12.303302063941956
+
+Final memory state:
+Reserved memory: 18402508800
+Allocated memory: 1080856064

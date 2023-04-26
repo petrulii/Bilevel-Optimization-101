@@ -2,6 +2,7 @@ import sys
 import time
 import torch
 from torch.nn import functional as func
+import gc
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
@@ -11,6 +12,8 @@ from model.InnerSolution.InnerSolution import InnerSolution
 from sklearn.metrics import accuracy_score
 
 from torchviz import make_dot
+
+from model.utils import get_memory_info
 
 class BilevelProblem:
   """
@@ -66,33 +69,20 @@ class BilevelProblem:
       epoch_iters = 0
       epoch_loss = 0
       #for X_outer, y_outer in self.outer_dataloader:
-      # _____NYUv2 start_____
       for item in self.outer_dataloader:
+        # Move data to GPU
         start = time.time()
         eval_data, eval_label, eval_depth, eval_normal = item
-        X_outer = eval_data
-        y_outer = (eval_label, eval_depth, eval_normal)
-      # _____NYUv2 end_____
-        # Move to GPU
-        X_outer = X_outer.to(self.device)
-        if type(y_outer) is tuple:
-          nb_items = len(y_outer)
-          for i in range(nb_items):
-            l = list(y_outer)
-            l[i] = l[i].to(self.device)
-            y_outer = tuple(l)
-        else:
-          y_outer = y_outer.to(self.device)
+        X_outer = eval_data.to(self.device)
+        y_outer = (eval_label.to(self.device), eval_depth.to(self.device), eval_normal.to(self.device))
         # Inner value corresponds to h*(X_outer)
         mu.requires_grad = True
         inner_value = self.inner_solution(mu, X_outer, y_outer)
         loss = self.outer_loss(mu, inner_value, y_outer)
         #make_dot(loss, params=dict([('mu', mu)])).render("graph_loss", format="png")
-        print("Outer loss:", loss)
         # Backpropagation
         self.outer_optimizer.zero_grad()
         loss.backward()
-        print("Gradient of mu:", mu.grad)
         self.outer_optimizer.step()
         self.outer_scheduler.step()
         # Update loss and iteration count
@@ -112,6 +102,7 @@ class BilevelProblem:
       test_losses.append(test_loss)
       print("Test avg. loss:", test_loss)
       print("Test avg. acc.:", accuracy)
+      print("Outer variable:", mu)
     return iters, outer_losses, inner_losses, test_losses, times
   
   def evaluate(self, test_dataloader, mu, max_iters=10):
