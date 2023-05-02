@@ -70,7 +70,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-batch_size = 64
+batch_size = 8
 max_epochs = 2
 
 # Dataloaders for inner and outer data
@@ -79,7 +79,7 @@ inner_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True
 valid_dataset = Bird_dataset_naive(valid_image_file,label_file,image_root,transform=test_transform, finegrain=True)
 outer_dataloader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
 test_dataset = Bird_dataset_naive(test_image_file,label_file,image_root,transform=test_transform, finegrain=True)
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
 
 # Inner model
 # Neural network to approximate the function h*
@@ -89,15 +89,15 @@ inner_model = ResNet().to(device)
 #for name, param in inner_model.named_parameters():
 #    print(name)
 # Optimizer that improves the approximation of h*
-inner_optimizer = torch.optim.SGD(inner_model.parameters(), lr=10000)#e-1)
-inner_scheduler = lr_scheduler.StepLR(inner_optimizer, step_size=500, gamma=0.5)
+inner_optimizer = torch.optim.SGD(inner_model.parameters(), lr=1e-1)
+inner_scheduler = lr_scheduler.StepLR(inner_optimizer, step_size=2, gamma=0.6)
 
 # Inner dual model
 # Neural network to approximate the function a*
 inner_dual_model = ResNet().to(device)
 # Optimizer that improves the approximation of a*
-inner_dual_optimizer = torch.optim.SGD(inner_dual_model.parameters(), lr=10000)#e-1)
-inner_dual_scheduler = lr_scheduler.StepLR(inner_dual_optimizer, step_size=500, gamma=0.5)
+inner_dual_optimizer = torch.optim.SGD(inner_dual_model.parameters(), lr=1e-1)
+inner_dual_scheduler = lr_scheduler.StepLR(inner_dual_optimizer, step_size=2, gamma=0.6)
 
 # Outer model
 # The outer neural network parametrized by the outer variable mu
@@ -107,8 +107,8 @@ outer_model = NeuralNetworkOuterModel(layer_sizes=[312,1]).to(device)
 # Initialize mu
 mu0 = torch.ones((312,1)).to(device)
 # Optimizer that improves the outer variable mu
-outer_optimizer = torch.optim.SGD([mu0], lr=100)#lr=1e-3, weight_decay=5e-3, momentum=.9)
-outer_scheduler = lr_scheduler.StepLR(outer_optimizer, step_size=5, gamma=0.5)
+outer_optimizer = torch.optim.SGD([mu0], lr=1)#lr=1e-3, weight_decay=5e-3, momentum=.9)
+outer_scheduler = lr_scheduler.StepLR(outer_optimizer, step_size=2, gamma=0.6)
 
 # Gather all models
 inner_models = (inner_model, inner_optimizer, inner_scheduler, inner_dual_model, inner_dual_optimizer, inner_dual_scheduler)
@@ -121,7 +121,7 @@ class_loss = nn.CrossEntropyLoss(reduction='mean')
 # Outer objective function
 def fo(mu, inner_value, labels):
     (main_pred, aux_pred) = inner_value
-    main_pred = torch.sigmoid(main_pred)
+    #main_pred = torch.sigmoid(main_pred)
     (main_label, aux_label) = labels
     loss = class_loss(main_pred, main_label.to(device, dtype=torch.long))
     return loss
@@ -129,7 +129,7 @@ def fo(mu, inner_value, labels):
 # Inner objective function
 def fi(mu, h_X_in, y_in):
     (main_pred, aux_pred) = h_X_in
-    main_pred = torch.sigmoid(main_pred)
+    #main_pred = torch.sigmoid(main_pred)
     aux_pred = torch.sigmoid(aux_pred)
     (main_label, aux_label) = y_in
     aux_label = aux_label.T
@@ -143,12 +143,14 @@ def fi(mu, h_X_in, y_in):
 
 # Optimize using neural implicit differention
 bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size)
-iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs, test_dataloader=None)
+iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs, test_dataloader=test_dataloader)
 
 # Show results
 print("Number of iterations:", iters)
 print("Average iteration time:", np.average(times))
 
-plot_loss(figures_dir+"loss_birds_2epochs_128batch_1000sz_nn", train_loss=inner_losses, title="Loss of neur. im. diff.")
+plot_loss(figures_dir+"loss_birds_4epoch_inner", train_loss=inner_losses, title="Inner loss of neur. im. diff.")
+plot_loss(figures_dir+"loss_birds_4epoch_outer", val_loss=outer_losses, title="Outer oss of neur. im. diff.")
+plot_loss(figures_dir+"loss_birds_4epoch_test", test_loss=test_losses, title="Test loss of neur. im. diff.")
 
 #Use gpu 23 or 28 rather than 21, more memory

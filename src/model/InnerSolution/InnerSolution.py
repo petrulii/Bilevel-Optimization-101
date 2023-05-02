@@ -45,11 +45,10 @@ class InnerSolution(nn.Module):
     opt_inner_val = ArgMinOp.apply(self, mu, X_outer, y_outer)
     return opt_inner_val
 
-  def optimize(self, mu, max_epochs=1, max_iters=5):
+  def optimize(self, mu, max_epochs=1, max_iters=10):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    #print("Optimizing inner model")
     epoch_loss, epoch_iters = 0, 0
     for epoch in range(max_epochs):
       #for X_inner, y_inner in self.inner_dataloader:
@@ -77,7 +76,7 @@ class InnerSolution(nn.Module):
       self.scheduler.step()
       self.loss = epoch_loss/epoch_iters
   
-  def optimize_dual(self, mu, X_outer, outer_grad2, max_epochs=1, max_iters=5):
+  def optimize_dual(self, mu, X_outer, outer_grad2, max_epochs=1, max_iters=10):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
@@ -98,7 +97,6 @@ class InnerSolution(nn.Module):
         h_X_i = self.model.forward(X_inner)
         a_X_o = self.dual_model.forward(X_outer)
         loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
-        #print("Inner dual loss:", loss.item())
         # Backpropagation
         self.dual_optimizer.zero_grad()
         loss.backward()
@@ -110,6 +108,7 @@ class InnerSolution(nn.Module):
       self.dual_scheduler.step()
       self.dual_loss = epoch_loss/epoch_iters
 
+  # TODO: what if I remember a larger batch in the outer data loader? To get a more precise a_X_o
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):
     """
     Loss function for optimizing a*.
@@ -133,10 +132,10 @@ class InnerSolution(nn.Module):
     # Compute the loss
     term1, term2 = 0, 0
     for i in range(nb_items):
-      term1 += torch.einsum('ij,ij->i', a_X_i[i], hessvp[i])
+      term1 += torch.einsum('bj,bj->b', a_X_i[i], hessvp[i])
     for i in range(nb_items):
-      term2 += torch.einsum('ij,ij->i',a_X_o[i], outer_grad2[i])
-    return (1/2)*(torch.mean(term1)+torch.mean(term2))
+      term2 += torch.einsum('bj,bj->b',a_X_o[i], outer_grad2[i])
+    return (1/2)*torch.mean(term1)+torch.mean(term2)
 
 
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_value):
@@ -192,8 +191,6 @@ class ArgMinOp(torch.autograd.Function):
     """
     Backward pass of a function that approximates h* for Neur. Imp. Diff.
     """
-    print("outer_grad2_0", outer_grad2_0[0,:])
-    print("outer_grad2_1", outer_grad2_1[0,:])
     outer_grad2 = (outer_grad2_0, outer_grad2_1)
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution

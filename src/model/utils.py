@@ -94,17 +94,16 @@ def plot_loss(figname, train_loss=None, val_loss=None, test_loss=None, title="Se
     param test_loss: list of test loss values
   """
   plt.clf()
-  # Generate a sequence of integers to represent the epoch numbers
-  epochs = len(train_loss)
-  ticks = np.arange(0, epochs, 1)
-  plt.xticks(ticks=ticks) 
   # Plot and label the training and validation loss values
   if train_loss != None:
-    plt.plot(ticks, train_loss, label='Outer Loss')
+    ticks = np.arange(0, len(train_loss), 1)
+    plt.plot(ticks, train_loss, label='Inner Loss')
   if val_loss != None:
-    plt.plot(ticks, val_loss, label='Inner Loss')
+    ticks = np.arange(0, len(val_loss), 1)
+    plt.plot(ticks, val_loss, label='Outer Loss')
   if test_loss != None:
-    plt.plot(ticks, test_loss, label='Test Loss')  
+    ticks = np.arange(0, len(test_loss), 1)
+    plt.plot(ticks, test_loss, label='Test Loss')
   # Add in a title and axes labels
   plt.title(title)
   plt.xlabel('Epochs')
