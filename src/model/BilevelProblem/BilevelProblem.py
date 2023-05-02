@@ -57,7 +57,7 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def optimize(self, mu, max_epochs=1, outer_optimizer=None, test_dataloader=None):
+  def optimize(self, mu, max_epochs=1, outer_optimizer=None, test_dataloader=None, max_iters=30):
     """
     Find the optimal outer solution.
       param mu: initial value of the outer variable
@@ -69,28 +69,40 @@ class BilevelProblem:
       epoch_iters = 0
       epoch_loss = 0
       #for X_outer, y_outer in self.outer_dataloader:
-      for item in self.outer_dataloader:
-        # Move data to GPU
+      for data in self.outer_dataloader:
+        X_outer, main_label, aux_label, data_id = data
+        aux_label = torch.stack(aux_label)
+        y_outer = (main_label, aux_label)
         start = time.time()
-        eval_data, eval_label, eval_depth, eval_normal = item
-        X_outer = eval_data.to(self.device)
-        y_outer = (eval_label.to(self.device), eval_depth.to(self.device), eval_normal.to(self.device))
+        # Move data to GPU
+        X_outer = X_outer.to(self.device, dtype=torch.float)
+        for task in y_outer:
+          task.to(self.device, dtype=torch.float)
+        #y_outer = y_outer.to(self.device, dtype=torch.float)
         # Inner value corresponds to h*(X_outer)
         mu.requires_grad = True
         inner_value = self.inner_solution(mu, X_outer, y_outer)
+        for pred in inner_value:
+          pred.retain_grad()
         loss = self.outer_loss(mu, inner_value, y_outer)
-        #make_dot(loss, params=dict([('mu', mu)])).render("graph_loss", format="png")
+        print("Outer iteration loss:", self.inner_solution.loss)
+        #make_dot(loss, show_attrs=True, show_saved=True).render("graph_loss", format="png")#dict([('mu', mu),
         # Backpropagation
         self.outer_optimizer.zero_grad()
         loss.backward()
+        print("Grad. of mu:", mu.grad[2:5])
+        exit(0)
         self.outer_optimizer.step()
-        self.outer_scheduler.step()
         # Update loss and iteration count
-        epoch_loss += loss.item()
+        loss = 0
+        epoch_loss += loss#.item()
         epoch_iters += 1
         iters += 1
         duration = time.time() - start
         times.append(duration)
+        if epoch_iters >= max_iters:
+          break
+      self.outer_scheduler.step()
       # Evaluate at the end of every epoch
       outer_losses.append(epoch_loss/epoch_iters)
       print("Outer iteration:", epoch, "|", iters)
@@ -98,10 +110,13 @@ class BilevelProblem:
       print("Inner iteration avg. loss:", self.inner_solution.loss)
       inner_losses.append(self.inner_solution.loss)
       print("Inner dual iteration avg. loss:", self.inner_solution.dual_loss)
-      test_loss, accuracy = self.evaluate(test_dataloader, mu)
-      test_losses.append(test_loss)
-      print("Test avg. loss:", test_loss)
-      print("Test avg. acc.:", accuracy)
+      if not (test_dataloader is None):
+        test_loss, accuracy = self.evaluate(test_dataloader, mu)
+        test_losses.append(test_loss)
+        print("Test avg. loss:", test_loss)
+        print("Test avg. acc.:", accuracy)
+      else:
+        test_losses.append(0)
       print("Outer variable:", mu)
     return iters, outer_losses, inner_losses, test_losses, times
   

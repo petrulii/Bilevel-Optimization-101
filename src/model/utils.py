@@ -6,6 +6,14 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
+from sklearn.metrics import classification_report
+import pandas as pd
+import numpy as np
+from pathlib import Path
+import random
+import cv2
+import matplotlib.pyplot as plt
+from torch.utils.data import Dataset, DataLoader
 
 def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
   """
@@ -77,7 +85,7 @@ def plot_1D_iterations(figname, iters1, iters2, f1, f2, plot_x_lim=[0,1], titles
   ax2.set_ylabel("f(\mu)")
   plt.savefig(figname+".png")
 
-def plot_loss(figname, train_loss, val_loss, test_loss, title="Segmentation"):
+def plot_loss(figname, train_loss=None, val_loss=None, test_loss=None, title="Segmentation"):
   """
   Plot the loss value over iterations.
     param figname: name of the figure
@@ -85,14 +93,18 @@ def plot_loss(figname, train_loss, val_loss, test_loss, title="Segmentation"):
     param aux_loss: list of auxiliary loss values
     param test_loss: list of test loss values
   """
+  plt.clf()
   # Generate a sequence of integers to represent the epoch numbers
   epochs = len(train_loss)
   ticks = np.arange(0, epochs, 1)
   plt.xticks(ticks=ticks) 
   # Plot and label the training and validation loss values
-  plt.plot(ticks, train_loss, label='Outer Loss')
-  plt.plot(ticks, val_loss, label='Inner Loss')
-  plt.plot(ticks, test_loss, label='Test Loss')  
+  if train_loss != None:
+    plt.plot(ticks, train_loss, label='Outer Loss')
+  if val_loss != None:
+    plt.plot(ticks, val_loss, label='Inner Loss')
+  if test_loss != None:
+    plt.plot(ticks, test_loss, label='Test Loss')  
   # Add in a title and axes labels
   plt.title(title)
   plt.xlabel('Epochs')
@@ -156,8 +168,27 @@ def tensor_to_state_dict(model, params, device):
   return current_dict
 
 def get_memory_info():
+  """
+  Prints cuda's reserved and allocated memory.
+  """
   t = torch.cuda.get_device_properties(0).total_memory
   r = torch.cuda.memory_reserved(0)
   a = torch.cuda.memory_allocated(0)
   print("Reserved memory:", r)
   print("Allocated memory:", a)
+
+def cos_dist(grad1, grad2):
+  """
+  Computes cos simillarity of gradients after flattening of tensors.
+  
+  It hasn't been stated in paper if batch normalization is considered as model trainable parameter,
+  but from my perspective only convolutional layer's cosine similarities should be measured.
+  """
+  # perform min(max(-1, dist),1) operation for eventual rounding errors (there's about 1 every epoch)
+  cos = nn.CosineSimilarity(dim=0, eps=1e-6)
+  res = cos(grad1, grad2)
+  return res
+
+def accuracy(outputs, labels):
+  _, preds = torch.max(outputs, dim=1)
+  return torch.tensor(torch.sum(preds == labels).item() / len(preds))

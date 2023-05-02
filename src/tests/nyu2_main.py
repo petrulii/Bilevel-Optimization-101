@@ -41,7 +41,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-batch_size = 8
+batch_size = 4
 max_epochs = 200
 
 # Dataloaders for inner and outer data
@@ -60,9 +60,6 @@ inner_model = SegNetSplit(logsigma=False).to(device)
 inner_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-4)
 inner_scheduler = lr_scheduler.StepLR(inner_optimizer, step_size=100, gamma=0.5)
 
-print("Memory after inner model to cuda")
-get_memory_info()
-
 # Inner dual model
 # Neural network to approximate the function a*
 inner_dual_model = SegNetSplit(logsigma=False).to(device)
@@ -70,16 +67,13 @@ inner_dual_model = SegNetSplit(logsigma=False).to(device)
 inner_dual_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-4)
 inner_dual_scheduler = lr_scheduler.StepLR(inner_optimizer, step_size=100, gamma=0.5)
 
-print("Memory after dual inner model to cuda")
-get_memory_info()
-
 # Outer model
 # The outer neural network parametrized by the outer variable mu
 outer_model = NeuralNetworkOuterModel(layer_sizes=[2,1]).to(device)
 # Initialize mu
-mu0 = torch.ones((2, 1)).to(device)#nn.Parameter(torch.ones((2, 1)), requires_grad=True).to(device)#torch.ones((2, 1)).to(device)
+mu0 = torch.ones((2, 1)).to(device)
 # Optimizer that improves the outer variable mu
-outer_optimizer = torch.optim.SGD([mu0], lr=1e-3, momentum=.9, weight_decay=1e-5)
+outer_optimizer = torch.optim.SGD([mu0], lr=1e-3, momentum=.9, weight_decay=1e-4)
 outer_scheduler = lr_scheduler.StepLR(outer_optimizer, step_size=100, gamma=0.5)
 
 # Gather all models
@@ -106,7 +100,7 @@ def fo(mu, h_X_out, y_out):
     seg = seg.type(torch.LongTensor).to(device)
     seg_loss, depth_loss, normal_loss = calc_loss(seg_pred, seg, depth_pred, depth, pred_normal, normal)
     loss_image = torch.column_stack((depth_loss.mean(0), normal_loss.mean(0)))
-    loss = seg_loss.mean(0) + 0*torch.sum(mu)
+    loss = seg_loss.mean(0)
     return loss
 
 # Inner objective function
@@ -119,9 +113,6 @@ def fi(mu, h_X_in, y_in):
     loss = seg_loss.mean(0) + functional_call(outer_model, tensor_to_state_dict(outer_model, mu, device), loss_image)
     return loss
 
-print("Initial memory state:")
-get_memory_info()
-
 # Optimize using neural implicit differention
 bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size)
 iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs, test_dataloader=test_dataloader)
@@ -129,9 +120,7 @@ iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, 
 # Show results
 print("Number of iterations:", iters)
 print("Average iteration time:", np.average(times))
-print("Final memory state:")
-get_memory_info()
 
-plot_loss(figures_dir+"out_loss_NID_mem", outer_losses, inner_losses, test_losses, title="Losses of neur. im. diff.")
+plot_loss(figures_dir+"out_loss_NID_200epochs", outer_losses, inner_losses, test_losses, title="Losses of neur. im. diff.")
 
 #Use gpu 23 or 28 rather than 21, more memory
