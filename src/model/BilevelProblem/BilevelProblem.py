@@ -13,14 +13,14 @@ from sklearn.metrics import accuracy_score
 
 from torchviz import make_dot
 
-from model.utils import get_memory_info
+from model.utils import get_memory_info, get_accuracy
 
 class BilevelProblem:
   """
   Instanciates the bilevel problem and solves it using Neural Implicit Differentiation.
   """
 
-  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64):
+  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200):
     """
     Init method.
       param outer_loss: outer level loss function
@@ -38,7 +38,7 @@ class BilevelProblem:
     self.batch_size = batch_size
     self.device = device
     self.outer_model, self.outer_optimizer, self.outer_scheduler = outer_model
-    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device)
+    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, max_iters=max_inner_iters)
 
   def __input_check__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size):
     """
@@ -57,7 +57,7 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def optimize(self, mu, max_epochs=1, outer_optimizer=None, test_dataloader=None, max_iters=100):
+  def optimize(self, mu, max_epochs=1, test_dataloader=None, max_iters=200):
     """
     Find the optimal outer solution.
       param mu: initial value of the outer variable
@@ -73,12 +73,10 @@ class BilevelProblem:
         print("Outer epoch:", epoch, "iteration:", iters)
         X_outer, main_label, aux_label, data_id = data
         aux_label = torch.stack(aux_label)
-        y_outer = (main_label, aux_label)
+        y_outer = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
         start = time.time()
         # Move data to GPU
         X_outer = X_outer.to(self.device, dtype=torch.float)
-        for task in y_outer:
-          task.to(self.device, dtype=torch.float)
         #y_outer = y_outer.to(self.device, dtype=torch.float)
         # Inner value corresponds to h*(X_outer)
         mu.requires_grad = True
@@ -86,6 +84,7 @@ class BilevelProblem:
         for pred in inner_value:
           pred.retain_grad()
         loss = self.outer_loss(mu, inner_value, y_outer)
+        print("Outer SGD lr=%.4f" % (self.outer_optimizer.param_groups[0]["lr"]))
         print("Inner loss:", self.inner_solution.loss)
         print("Outer loss:", loss.item())
         #make_dot(loss, show_attrs=True, show_saved=True).render("graph_loss", format="png")
@@ -105,41 +104,54 @@ class BilevelProblem:
         outer_losses.append(epoch_loss/epoch_iters)
         # Test losses
         if not (test_dataloader is None):
-          test_loss = self.evaluate(test_dataloader, mu)
-          test_losses.append(test_loss)
+          test_loss, test_acc = self.evaluate(test_dataloader, mu)
+          test_losses.append(test_acc)
         else:
           test_losses.append(0)
         if epoch_iters >= max_iters:
           break
-      self.outer_scheduler.step()
+        self.outer_scheduler.step()
       print("Outer iteration avg. loss:", epoch_loss/epoch_iters)
       print("Inner iteration avg. loss:", self.inner_solution.loss)
       print("Inner dual iteration avg. loss:", self.inner_solution.dual_loss)
+      print("Outer variable mu[0:6]:", mu[0:6])
+      _, class_pred = torch.max(inner_value[0], dim=1)
+      print("Train prediction:", class_pred[0:6])
+      print("Train label:", y_outer[0][0:6])
     return iters, outer_losses, inner_losses, test_losses, times
   
-  def evaluate(self, test_dataloader, mu, max_iters=10):
+  def evaluate(self, test_dataloader, mu, max_iters=30):
     """
     Find the optimal outer solution.
       param test_dataloader: test data
       param mu: outer variable
     """
-    total_loss, iters = 0, 0
+    self.inner_solution.eval = True
+    total_loss, total_acc, iters = 0, 0, 0
     #for X_test, y_test in self.test_dataloader:
     for data in test_dataloader:
       X_outer, main_label, aux_label, data_id = data
       aux_label = torch.stack(aux_label)
-      y_outer = (main_label, aux_label)
+      y_outer = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
       # Move data to GPU
       X_outer = X_outer.to(self.device, dtype=torch.float)
-      for task in y_outer:
-        task.to(self.device, dtype=torch.float)
       #y_outer = y_outer.to(self.device, dtype=torch.float)
       # Inner value corresponds to h*(X_outer)
       inner_value = self.inner_solution(mu, X_outer, y_outer)
+      # Compute loss
       loss = self.outer_loss(mu, inner_value, y_outer)
+      # Compute accuracy
+      _, class_pred = torch.max(inner_value[0], dim=1)
+      class_pred = class_pred.to(self.device)
+      accuracy = get_accuracy(class_pred, y_outer[0])
+      total_acc += accuracy
       total_loss += loss.item()
       iters += 1
       if iters >= max_iters:
         break
     print("Test avg. loss:", total_loss/iters)
-    return total_loss/iters
+    print("Test avg. acc.:", total_acc/iters)
+    print("Test prediction:", class_pred[0:6])
+    print("Test label:", y_outer[0][0:6])
+    self.inner_solution.eval = False
+    return total_loss/iters, total_acc/iters

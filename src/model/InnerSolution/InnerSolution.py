@@ -19,7 +19,7 @@ class InnerSolution(nn.Module):
   Instanciates the inner solution of the bilevel problem.
   """
 
-  def __init__(self, inner_loss, inner_dataloader, inner_models, device):
+  def __init__(self, inner_loss, inner_dataloader, inner_models, device, max_iters=200):
     """
     Init method.
       param inner_loss: inner level objective function
@@ -33,6 +33,8 @@ class InnerSolution(nn.Module):
     self.device = device
     self.loss = 0
     self.dual_loss = 0
+    self.max_iters = max_iters
+    self.eval = False
   
   def forward(self, mu, X_outer, y_outer):
     """
@@ -45,7 +47,7 @@ class InnerSolution(nn.Module):
     opt_inner_val = ArgMinOp.apply(self, mu, X_outer, y_outer)
     return opt_inner_val
 
-  def optimize(self, mu, max_epochs=1, max_iters=10):
+  def optimize(self, mu, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
@@ -55,11 +57,9 @@ class InnerSolution(nn.Module):
       for data in self.inner_dataloader:
         X_inner, main_label, aux_label, data_id = data
         aux_label = torch.stack(aux_label)
-        y_inner = (main_label, aux_label)
+        y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
         # Move data to GPU
         X_inner = X_inner.to(self.device, dtype=torch.float)
-        for task in y_inner:
-          task.to(self.device, dtype=torch.float)
         #y_inner = y_inner.to(self.device, dtype=torch.float)
         # Get the prediction
         h_X_i = self.model.forward(X_inner)
@@ -71,12 +71,13 @@ class InnerSolution(nn.Module):
         self.optimizer.step()
         epoch_loss += loss.item()
         epoch_iters += 1
-        if epoch_iters >= max_iters:
+        if epoch_iters >= self.max_iters:
           break
+      print("Inner SGD lr=%.4f" % (self.optimizer.param_groups[0]["lr"]))
       self.scheduler.step()
       self.loss = epoch_loss/epoch_iters
   
-  def optimize_dual(self, mu, X_outer, outer_grad2, max_epochs=1, max_iters=10):
+  def optimize_dual(self, mu, X_outer, outer_grad2, max_epochs=1):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
@@ -86,11 +87,9 @@ class InnerSolution(nn.Module):
       for data in self.inner_dataloader:
         X_inner, main_label, aux_label, data_id = data
         aux_label = torch.stack(aux_label)
-        y_inner = (main_label, aux_label)
+        y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
         # Move data to GPU
         X_inner = X_inner.to(self.device, dtype=torch.float)
-        for task in y_inner:
-          task.to(self.device, dtype=torch.float)
         #y_inner = y_inner.to(self.device, dtype=torch.float)
         # Compute prediction and loss
         a_X_i = self.dual_model.forward(X_inner)
@@ -103,7 +102,7 @@ class InnerSolution(nn.Module):
         self.dual_optimizer.step()
         epoch_loss += loss.item()
         epoch_iters += 1
-        if epoch_iters >= max_iters:
+        if epoch_iters >= self.max_iters:
           break
       self.dual_scheduler.step()
       self.dual_loss = epoch_loss/epoch_iters
@@ -175,11 +174,12 @@ class ArgMinOp(torch.autograd.Function):
     """
     Forward pass of a function that approximates h* for Neur. Imp. Diff.
     """
-    # In forward autograd is disabled by default but we use it in optimize(mu).
-    with torch.enable_grad():
-      # Train the model to approximate h* at mu_k
-      inner_solution.optimize(mu)
-    # Remember the value h*(X_outer)
+    if not inner_solution.eval:
+      # In forward autograd is disabled by default but we use it in optimize(mu).
+      with torch.enable_grad():
+        # Train the model to approximate h* at mu_k
+        inner_solution.optimize(mu)
+      # Remember the value h*(X_outer)
     inner_value = inner_solution.model(X_outer)
     # Context ctx allows to communicate from forward to backward
     ctx.inner_solution = inner_solution
@@ -202,7 +202,8 @@ class ArgMinOp(torch.autograd.Function):
       # Here the model approximating a* needs to be trained on the same X_inner batches
       # as the h* model was trained on and on X_outter batches that h was evaluated on
       # in the outer loop where we optimize the outer objective g(mu, h).
-      inner_solution.optimize_dual(mu, X_outer, outer_grad2)
+      if not inner_solution.eval:
+        inner_solution.optimize_dual(mu, X_outer, outer_grad2)
       dual_value = inner_solution.dual_model(X_outer)
       grad = inner_solution.compute_hessian_vector_prod(mu, X_outer, y_outer, inner_value, dual_value)
     return None, grad, None, None

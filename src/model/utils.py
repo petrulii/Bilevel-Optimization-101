@@ -97,17 +97,19 @@ def plot_loss(figname, train_loss=None, val_loss=None, test_loss=None, title="Se
   # Plot and label the training and validation loss values
   if train_loss != None:
     ticks = np.arange(0, len(train_loss), 1)
+    plt.yscale('log')
     plt.plot(ticks, train_loss, label='Inner Loss')
   if val_loss != None:
     ticks = np.arange(0, len(val_loss), 1)
+    plt.yscale('log')
     plt.plot(ticks, val_loss, label='Outer Loss')
   if test_loss != None:
     ticks = np.arange(0, len(test_loss), 1)
-    plt.plot(ticks, test_loss, label='Test Loss')
+    plt.plot(ticks, test_loss, label='Test Accuracy')
   # Add in a title and axes labels
+  plt.xlabel('Iterations')
+  #plt.ylabel('')
   plt.title(title)
-  plt.xlabel('Epochs')
-  plt.ylabel('Loss')   
   # Save the plot
   plt.legend(loc='best')
   plt.savefig(figname+".png")
@@ -179,7 +181,6 @@ def get_memory_info():
 def cos_dist(grad1, grad2):
   """
   Computes cos simillarity of gradients after flattening of tensors.
-  
   It hasn't been stated in paper if batch normalization is considered as model trainable parameter,
   but from my perspective only convolutional layer's cosine similarities should be measured.
   """
@@ -188,6 +189,9 @@ def cos_dist(grad1, grad2):
   res = cos(grad1, grad2)
   return res
 
-def accuracy(outputs, labels):
-  _, preds = torch.max(outputs, dim=1)
-  return torch.tensor(torch.sum(preds == labels).item() / len(preds))
+def get_accuracy(class_pred, labels):
+  """
+  Accuracy of a classification task.
+  """
+  acc = torch.tensor(torch.sum((class_pred) == labels).item() / len(class_pred))
+  return acc
