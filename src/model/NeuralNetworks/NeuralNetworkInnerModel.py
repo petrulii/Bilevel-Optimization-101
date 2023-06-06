@@ -16,8 +16,8 @@ class NeuralNetworkInnerModel(nn.Module):
     self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
   def forward(self, x):
-    x = self.layer_1(x)
-    x = self.layer_2(x)
-    x = self.layer_3(x)
-    x = self.layer_4(x)
-    return x
+    res1 = self.layer_1(x)
+    res2 = self.layer_2(res1)
+    res3 = self.layer_3(res2)
+    res = self.layer_4(res3)
+    return (res[:, 0:1], res[:, 1:3])

@@ -15,11 +15,24 @@ from sklearn.model_selection import train_test_split
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
-A = torch.randn(3, 1)
-B = torch.randn(3, 1)
-res = torch.einsum('ij,ij->', A, B)
-print("A:", A[0:2])
-print("B:", B)
-print("res:", res)
-print("dot prod.:", A.T @ B)
+import torch
 
+class Square(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return x**2
+
+    @staticmethod
+    def backward(ctx, grad_out):
+        x, = ctx.saved_tensors
+        return grad_out * 2 * x
+
+x = torch.randn(2, 1, requires_grad=True, dtype=torch.double)
+print("x:", x)
+res = (Square.apply(x))
+print("res:", res)
+res.backward()
+print("x.grad:", x.grad)
+#print(torch.autograd.gradcheck(Square.apply, x))
+#print(torch.autograd.gradgradcheck(Square.apply, x))

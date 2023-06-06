@@ -7,11 +7,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.autograd import Variable
 from sklearn.metrics import classification_report
-import pandas as pd
 import numpy as np
 from pathlib import Path
 import random
-import cv2
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 

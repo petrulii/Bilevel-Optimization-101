@@ -7,11 +7,9 @@ class NeuralNetworkOuterModel(nn.Module):
   """
   def __init__(self, layer_sizes):
     super(NeuralNetworkOuterModel, self).__init__()
-    self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
-    nn.init.ones_(self.layer_1.weight)
-    nn.init.zeros_(self.layer_1.bias)
+    self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1], bias=False)
+    nn.init.normal_(self.layer_1.weight, mean=0.5, std=0.5)
 
   def forward(self, x):
     x = self.layer_1(x)
-    Rel = torch.nn.ReLU()
-    return Rel(x)
+    return x
