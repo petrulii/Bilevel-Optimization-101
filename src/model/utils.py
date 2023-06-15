@@ -12,6 +12,7 @@ from pathlib import Path
 import random
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
 
 def plot_2D_functions(figname, f1, f2, f3, points=None, plot_x_lim=[-5,5], plot_y_lim=[-5,5], plot_nb_contours=10, titles=["True function","Classical Imp. Diff.","Neural Imp. Diff."]):
   """
@@ -133,11 +134,14 @@ def sample_X_y(X, y, n):
   index = (probas.multinomial(num_samples=n, replacement=True)).to(dtype=torch.long)
   return X[index], y[index]
 
-def set_seed(seed=0):
+def set_seed(seed=None):
   """
   A function to set the random seed.
     param seed: the random seed, 0 by default
   """
+  if seed is None:
+    seed = random.randrange(100)
+  print("Seed:", seed)
   random.seed(seed)
   np.random.seed(seed)
   torch.manual_seed(seed)
@@ -193,3 +197,50 @@ def get_accuracy(class_pred, labels):
   """
   acc = torch.tensor(torch.sum((class_pred) == labels).item() / len(class_pred))
   return acc
+
+class Data(Dataset):
+	"""
+	A class for input data.
+	"""
+	def __init__(self, X, y):
+		self.X = X
+		self.y = y
+		self.len = len(self.y)
+
+	def __getitem__(self, index):
+		return self.X[index], self.y[index][0], (self.y[index][1], self.y[index][2]), index
+
+	def __len__(self):
+		return self.len
+
+def auxiliary_toy_data():
+  # Setting the random seed.
+  set_seed(seed=42)
+  # Initialize dimesnions
+  n, m, m_out, m_in = 2, 100000, 30000, 70000
+  # The coefficient tensor of size (n,1) filled with values uniformally sampled from the range (0,1)
+  coef = np.array([[1],[1]]).astype('float32')
+  coef_harm = np.array([[2],[-4]]).astype('float32')
+  # The data tensor of size (m,n) filled with values uniformally sampled from the range (0,1)
+  X = np.random.uniform(size=(m, n)).astype('float32')
+  # True h_star
+  h_true = lambda X: X @ coef
+  h_harm = lambda X: X @ coef_harm
+  # Main labels
+  y_main = h_true(X)#+np.random.normal(scale=1.2, size=(m,1)).astype('float32')
+  # Useful auxiliary labels
+  y_aux1 = h_true(X)#+np.random.normal(size=(m,1)).astype('float32')
+  # Harmful auxiliary labels
+  y_aux2 = h_harm(X)#+np.random.normal(size=(m,1)).astype('float32')
+  y = np.hstack((y_main, y_aux1, y_aux2))
+  # Split X into 2 tensors with sizes [m_in, m_out] along dimension 0
+  X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.3, random_state=1)
+  # Convert everything to PyTorch tensors
+  X_train, X_val, y_train, y_val, coef = (torch.from_numpy(X_train)), (torch.from_numpy(X_val)), (torch.from_numpy(y_train)), (torch.from_numpy(y_val)), (torch.from_numpy(coef))
+  print("X shape:", X.shape)
+  print("y shape:", y.shape)
+  print("True coeficients:", coef)
+  print("X training data:", X_train[1:5])
+  print("y training labels:", y_train[1:5])
+  print()
+  return n, m, m_out, m_in, X_train, X_val, y_train, y_val, coef

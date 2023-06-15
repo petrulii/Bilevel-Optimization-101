@@ -5,6 +5,7 @@ from torch.nn import functional as func
 import gc
 import wandb
 import numpy as np
+from statistics import mean
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
@@ -22,7 +23,7 @@ class BilevelProblem:
   Instanciates the bilevel problem and solves it using Neural Implicit Differentiation.
   """
 
-  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200, max_inner_dual_iters=5):
+  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200, max_inner_dual_iters=5, aux_dataloader=None):
     """
     Init method.
       param outer_loss: outer level loss function
@@ -41,6 +42,10 @@ class BilevelProblem:
     self.device = device
     self.outer_model, self.outer_optimizer, self.outer_scheduler = outer_model
     self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, max_iters=max_inner_iters, max_dual_iters=max_inner_dual_iters)
+    if aux_dataloader is None:
+      self.aux_dataloader = outer_dataloader
+    else:
+      self.aux_dataloader = aux_dataloader
 
   def __input_check__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size):
     """
@@ -59,19 +64,19 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def optimize(self, mu, max_epochs=1, test_dataloader=None, max_iters=200, eval_every_n = 20):
+  def optimize(self, mu, max_epochs=10, max_iters=100, eval_every_n=10, test_dataloader=None):
     """
     Find the optimal outer solution.
       param mu: initial value of the outer variable
       param maxiter: maximum number of iterations
     """
-    iters, outer_losses, inner_losses, val_accs, times = 0, [], [], [], []
+    iters, outer_losses, inner_losses, val_accs, times, evaluated, acc_smooth = 0, [], [], [], [], False, 10
     # Making sure gradient of mu is computed.
     for epoch in range(max_epochs):
       epoch_iters = 0
       epoch_loss = 0
       #for X_outer, y_outer in self.outer_dataloader:
-      for data in self.outer_dataloader:
+      for data in self.aux_dataloader:
         #print("Outer epoch:", epoch, "iteration:", iters)
         X_outer, main_label, aux_label, data_id = data
         aux_label = torch.stack(aux_label)
@@ -112,14 +117,16 @@ class BilevelProblem:
         inner_losses.append(self.inner_solution.loss)
         # Outer losses
         outer_losses.append(epoch_loss/epoch_iters)
-        # Test losses
+        # Evaluate
         if (iters % eval_every_n == 0):
           _, val_acc = self.evaluate(self.outer_dataloader, mu)
-          #if (iters-eval_every_n)!=0 and val_acc <= val_accs[-1]:
-          #  print("Learned outer variable mu:", mu)
-          #  return iters, outer_losses, inner_losses, val_accs, times
           val_accs.append(val_acc)
           wandb.log({"acc": val_acc})
+          if (test_dataloader!=None) and (not evaluated) and (len(val_accs)>acc_smooth) and (mean(val_accs[-acc_smooth:]) <= mean(val_accs[-(acc_smooth*2):-(acc_smooth)])):
+            test_loss, test_acc = self.evaluate(test_dataloader, mu)
+            wandb.log({"test loss": test_loss})
+            wandb.log({"test acc": test_acc})
+            evaluated = True
         if epoch_iters >= max_iters:
           break
       # Print predictions and labels for a sanity check
@@ -128,22 +135,20 @@ class BilevelProblem:
       print("Train label:", y_outer[0][0:6])
     return iters, outer_losses, inner_losses, val_accs, times
   
-  def evaluate(self, test_dataloader, mu, max_iters=100):
+  def evaluate(self, dataloader, mu, max_iters=100):
     """
     Evaluate the prediction quality on the test dataset.
-      param test_dataloader: test data
+      param dataloader: data to evaluate on
       param mu: outer variable
     """
     self.inner_solution.eval = True
     total_loss, total_acc, iters = 0, 0, 0
-    #for X_test, y_test in self.test_dataloader:
-    for data in test_dataloader:
+    for data in dataloader:
       X_outer, main_label, aux_label, data_id = data
       aux_label = torch.stack(aux_label)
       y_outer = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
       # Move data to GPU
       X_outer = X_outer.to(self.device, dtype=torch.float)
-      #y_outer = y_outer.to(self.device, dtype=torch.float)
       # Inner value corresponds to h*(X_outer)
       inner_value = self.inner_solution(mu, X_outer, y_outer)
       # Compute loss
@@ -152,7 +157,7 @@ class BilevelProblem:
       _, class_pred = torch.max(inner_value[0], dim=1)
       class_pred = class_pred.to(self.device)
       accuracy = get_accuracy(class_pred, y_outer[0])
-      total_acc += accuracy
+      total_acc += accuracy.item()
       total_loss += loss.item()
       iters += 1
     self.inner_solution.eval = False

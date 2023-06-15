@@ -100,8 +100,8 @@ print("Validation set length:", len(valid_id_set))
 print("Test set length:", len(test_id_set))
 
 # Split the training set into auxiliary and training sets
-aux_id_set = full_train_set[0:200]
-rest_train_set = full_train_set[200:5994]
+aux_id_set = full_train_set[0:256]
+rest_train_set = full_train_set[256:5994]
 
 print("Auxiliary set length:", len(aux_id_set))
 print("Final train set length:", len(rest_train_set))

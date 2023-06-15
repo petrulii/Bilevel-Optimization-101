@@ -13,6 +13,7 @@ from torch.nn import functional as F
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.autograd.functional import hessian
 from torch.utils.data import Dataset, DataLoader
+from torchsummary import summary
 import os
 from pathlib import Path
 import torchvision
@@ -22,16 +23,14 @@ import torchvision.transforms as transforms
 from torch.utils.data import random_split
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
-from statistics import mean
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 
-from experiments.birds.Bird_dataset import Bird_dataset_naive
 from model.InnerSolution.InnerSolution import InnerSolution
 from model.BilevelProblem.BilevelProblem import BilevelProblem
-from model.NeuralNetworks.BirdsResNet import ResNet
 from model.NeuralNetworks.NeuralNetworkOuterModel import NeuralNetworkOuterModel
+from model.NeuralNetworks.NeuralNetworkInnerModel import NeuralNetworkInnerModel
 from model.utils import *
 
 # Add AuxiLearn project directory path
@@ -41,31 +40,7 @@ from auxilearn.hypernet import MonoLinearHyperNet
 from auxilearn.optim import MetaOptimizer
 
 # Set logging
-wandb.init(group="Auxilearn_aux_time", job_type="eval_Auxilearn")
-
-# Setting the random seed.
-set_seed()
-
-# Paths to data
-train_image_file = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/preprocess_data/rest_train_set.json'
-aux_image_file = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/preprocess_data/aux_set.json'
-valid_image_file = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/preprocess_data/valid_set.json'
-test_image_file = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/preprocess_data/test_set.json'
-label_file = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/preprocess_data/image_dictionary.json'
-image_root = '/home/clear/ipetruli/projects/bilevel-optimization/src/experiments/birds/CUB_200_2011/CUB_200_2011/images'
-
-# Data pre-processing
-train_transform = transforms.Compose([transforms.Resize(256),
-                                      transforms.RandomResizedCrop(224),
-                                      transforms.RandomHorizontalFlip(),
-                                      transforms.ToTensor(),
-                                      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                                     ])
-test_transform = transforms.Compose([transforms.Resize(256),
-                                     transforms.CenterCrop(224),
-                                     transforms.ToTensor(),
-                                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                                    ])
+wandb.init(group="AuxiLearn_auxiliary_example", job_type="eval")
 
 # Setting the directory to save figures to.
 figures_dir = "figures/"
@@ -79,71 +54,81 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-nb_aux_tasks = 312
+nb_aux_tasks = 2
 batch_size = 128
-max_epochs = 800
+max_epochs = 100
 max_outer_iters = 100
 max_inner_dual_iters, max_inner_iters = 3, 15
-nb_classes = 200
 eval_every_n = 7
-# Number of batches to accumulate for meta loss
 n_meta_loss_accum = 1
 
+# Get data
+n, m, m_out, m_in, X_train, X_val, y_train, y_val, coef = auxiliary_toy_data()
+
 # Dataloaders for inner and outer data
-train_dataset = Bird_dataset_naive(train_image_file,label_file,image_root,transform=train_transform, finegrain=True)
-inner_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-aux_dataset = Bird_dataset_naive(aux_image_file,label_file,image_root,transform=train_transform, finegrain=True)
-aux_dataloader = DataLoader(aux_dataset, batch_size=batch_size, shuffle=True)
-valid_dataset = Bird_dataset_naive(valid_image_file,label_file,image_root,transform=test_transform, finegrain=True)
-outer_dataloader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
-test_dataset = Bird_dataset_naive(test_image_file,label_file,image_root,transform=test_transform, finegrain=True)
-test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+inner_data = Data(X_train, y_train)
+inner_dataloader = DataLoader(dataset=inner_data, batch_size=batch_size, shuffle=True)
+outer_data = Data(X_val, y_val)
+outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch_size, shuffle=True)
+test_dataloader = outer_dataloader
 
 # Inner model
 # Neural network to approximate the function h*
-inner_model = ResNet().to(device)
+inner_model = (NeuralNetworkInnerModel([2, 10, 20, 10, 3])).to(device)
 # Optimizer that improves the approximation of h*
-inner_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-5)#, weight_decay=5e-5)
-inner_scheduler = None#ReduceLROnPlateau(optimizer,mode='min',factor=0.5,patience=20)
+inner_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-4)
+inner_scheduler = None
+# Neural network to approximate the function a*
+inner_dual_model = (NeuralNetworkInnerModel([2, 10, 20, 10, 3])).to(device)
+# Optimizer that improves the approximation of a*
+inner_dual_optimizer = torch.optim.Adam(inner_dual_model.parameters(), lr=1e-5)
+inner_dual_scheduler = None
 
 # Outer model
-# The outer linear neural network
-outer_model = NeuralNetworkOuterModel(layer_sizes=[nb_aux_tasks,1]).to(device)
-# Optimizer that improves the outer linear model 
-outer_optimizer = torch.optim.SGD(outer_model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-5)
+# The outer neural network parametrized by the outer variable mu
+outer_model = (NeuralNetworkOuterModel([nb_aux_tasks, 1])).to(device)
+# Initialize mu
+mu0 = (torch.ones((nb_aux_tasks,1))).to(device)
+#mu0.normal_(mean=1, std=1)
+# Optimizer that improves the outer variable mu
+outer_optimizer = torch.optim.Adam(outer_model.parameters(), lr=1e-3)
 outer_scheduler = None
 
 meta_optimizer = MetaOptimizer(meta_optimizer=outer_optimizer, hpo_lr=1e-4, truncate_iter=max_inner_dual_iters, max_grad_norm=25)
 
 # Print configuration
-suffix = "AuxiLearn_baseline"
+suffix = "Auxiliary_example"
 print("Run configuration:", suffix)
 
 wandb.watch((inner_model),log_freq=100)
 
+# Gather all models
+inner_models = (inner_model, inner_optimizer, inner_scheduler, inner_dual_model, inner_dual_optimizer, inner_dual_scheduler)
+outer_models = (outer_model, outer_optimizer, outer_scheduler)
+
 # Loss helper functions
-binary_loss = nn.BCELoss(reduction='mean')
-class_loss = nn.CrossEntropyLoss(reduction='mean', ignore_index=-1)
 relu = torch.nn.ReLU()
+MSE = nn.MSELoss()
 
 # Outer objective function
 def fo(inner_value, labels):
     (main_pred, aux_pred) = inner_value
     (main_label, aux_label) = labels
-    loss = class_loss(main_pred, main_label.to(device, dtype=torch.long))
+    loss = MSE(main_pred, main_label)
     return loss
 
 # Inner objective function
 def fi(h_X_in, y_in):
+    # Keep mu positive
     (main_pred, aux_pred) = h_X_in
     aux_pred = torch.sigmoid(aux_pred)
     (main_label, aux_label) = y_in
     aux_label = aux_label.T
-    loss = class_loss(main_pred, main_label.to(device, dtype=torch.long))
+    loss = MSE(main_pred, main_label)
     aux_loss_vector = torch.zeros((nb_aux_tasks,1)).to(device)
     for task in range(nb_aux_tasks):
-        aux_loss_vector[task] = binary_loss(aux_pred[:,task], aux_label[:,task].to(device, dtype=torch.float))
-    # Get the outer loss
+        aux_loss_vector[task] = MSE(aux_pred[:,task], aux_label[:,task])
+    # Essentially dot product with mu
     loss += outer_model(aux_loss_vector.T)[0,0]
     return loss
 
@@ -192,28 +177,6 @@ def hyperstep():
     )
     return hypergrads
 
-def evaluate(dataloader):
-    """
-    Evaluate the prediction quality on the test dataset.
-    """
-    total_loss, total_acc, iters = 0, 0, 0
-    for data in dataloader:
-        X_outer, main_label, aux_label, data_id = data
-        aux_label = torch.stack(aux_label)
-        y_outer = (main_label.to(device, dtype=torch.float), aux_label.to(device, dtype=torch.float))
-        X_outer = X_outer.to(device, dtype=torch.float)
-        inner_value = inner_model(X_outer)
-        # Compute loss
-        loss = fo(inner_value, y_outer)
-        # Compute accuracy
-        _, class_pred = torch.max(inner_value[0], dim=1)
-        class_pred = class_pred.to(device)
-        accuracy = get_accuracy(class_pred, y_outer[0])
-        total_acc += accuracy.item()
-        total_loss += loss.item()
-        iters += 1
-    return total_loss/iters, total_acc/iters
-
 def optimize_inner():
     """
     Optimization loop for the inner-level model that approximates h*.
@@ -248,7 +211,7 @@ def optimize_outer(max_epochs=10, max_iters=100, eval_every_n=10):
     for epoch in range(max_epochs):
         epoch_iters = 0
         epoch_loss = 0
-        for data in aux_dataloader:
+        for data in outer_dataloader:
             X_outer, main_label, aux_label, data_id = data
             aux_label = torch.stack(aux_label)
             y_outer = (main_label.to(device, dtype=torch.float), aux_label.to(device, dtype=torch.float))
@@ -266,6 +229,7 @@ def optimize_outer(max_epochs=10, max_iters=100, eval_every_n=10):
             # Backpropagation
             backward_start = time.time()
             curr_hypergrads = hyperstep()
+            print("mu:\n", outer_model.layer_1.weight)
             wandb.log({"duration of backward": time.time() - backward_start})
             # Make sure all weights of the single linear layer are positive or null
             for p in outer_model.parameters():
@@ -282,26 +246,15 @@ def optimize_outer(max_epochs=10, max_iters=100, eval_every_n=10):
             inner_losses.append(inner_loss)
             # Outer losses
             outer_losses.append(loss.item())
-            # Evaluate
-            if (iters % eval_every_n == 0):
-                _, val_acc = evaluate(outer_dataloader)
-                val_accs.append(val_acc)
-                wandb.log({"acc": val_acc})
-                if (test_dataloader!=None) and (not evaluated) and (len(val_accs)>acc_smooth) and (mean(val_accs[-acc_smooth:]) <= mean(val_accs[-(acc_smooth*2):-(acc_smooth)])):
-                    test_loss, test_acc = evaluate(test_dataloader)
-                    wandb.log({"test loss": test_loss})
-                    wandb.log({"test acc": test_acc})
-                    evaluated = True
             if epoch_iters >= max_iters:
                 break
         _, class_pred = torch.max(inner_value[0], dim=1)
-        print("Train prediction:", class_pred[0:6])
-        print("Train label:", y_outer[0][0:6])
     return iters, outer_losses, inner_losses, val_accs, times
 
 # Optimize using classical implicit differention
 iters, outer_losses, inner_losses, val_accs, times = optimize_outer(max_epochs=max_epochs, max_iters=max_outer_iters, eval_every_n=eval_every_n)
 
 # Show results
+print("mu:\n", outer_model.layer_1.weight)
 print("\nNumber of iterations:", iters)
 print("Average iteration time:", np.average(times))

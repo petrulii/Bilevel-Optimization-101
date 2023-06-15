@@ -89,8 +89,8 @@ class InnerSolution(nn.Module):
       X_inner = X_inner.to(self.device, dtype=torch.float)
       #y_inner = y_inner.to(self.device, dtype=torch.float)
       # Compute prediction and loss
-      a_X_i = self.dual_model(X_inner)
       h_X_i = self.model(X_inner)
+      a_X_i = self.dual_model(X_inner)
       a_X_o = self.dual_model(X_outer)
       loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
       # Backpropagation
@@ -127,35 +127,33 @@ class InnerSolution(nn.Module):
     # Compute the loss
     term1, term2 = 0, 0
     for i in range(nb_items):
-      term1 += torch.einsum('ij,ij->', a_X_i[i], hessvp[i])
-      #term1 += torch.einsum('bj,bj->b', a_X_i[i], hessvp[i])
+      #term1 += torch.einsum('ij,ij->', a_X_i[i], hessvp[i])
+      term1 += torch.einsum('bj,bj->b', a_X_i[i], hessvp[i])
     for i in range(nb_items):
-      term2 += torch.einsum('ij,ij->',a_X_o[i], outer_grad2[i])
-      #term2 += torch.einsum('bj,bj->b',a_X_o[i], outer_grad2[i])
+      #term2 += torch.einsum('ij,ij->',a_X_o[i], outer_grad2[i])
+      term2 += torch.einsum('bj,bj->b', a_X_o[i], outer_grad2[i])
     return (1/2)*torch.mean(term1)+torch.mean(term2)
 
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_value):
     """
     Computing B*a where a is dual_value=a(X_outer) and B is the functional derivative delta_mu delta_h g(mu,h*).
     """
-    # Specifying the inner objective as a function of mu and h*(X)
-    #f = lambda arg1, arg2: self.inner_loss(arg1, arg2, y_outer)
-    f = lambda mu, h_X_i_0, h_X_i_1: self.inner_loss(mu, (h_X_i_0, h_X_i_1), y_outer)
+    f = lambda mu, h_X_main, h_X_aux: self.inner_loss(mu, (h_X_main, h_X_aux), y_outer)
     # Make sure a*(X) is a tuple, if not, wrap as tuple.
     if not(type(dual_value) is tuple):
       dual_value = (dual_value,)
     # Make sure h*(X) is a tuple, if not, wrap as tuple.
     if not(type(inner_value) is tuple):
       inner_value = (inner_value,)
+    # Deatch items from the graph.
     for item in dual_value:
       item.detach()
     for item in inner_value:
       item.detach()
-    # Here v has to be a tuple, so we concatinate mu with a*(X).
+    # Here v has to be a the argument tuple shape, so we concatinate mu with a*(X).
     v = (torch.zeros_like(mu),) + dual_value
     # Here args has to be a tuple, so we concatinate mu with h*(X).
     args = (mu,) + inner_value
-    # Similar to H_loss eigsum
     hessvp = autograd.functional.hvp(f, args, v)[1][0]
     return hessvp
 
@@ -183,11 +181,11 @@ class ArgMinOp(torch.autograd.Function):
     return inner_value
 
   @staticmethod
-  def backward(ctx, outer_grad2_0, outer_grad2_1):
+  def backward(ctx, outer_grad2_aux, outer_grad2_main):
     """
     Backward pass of a function that approximates h* for Neur. Imp. Diff.
     """
-    outer_grad2 = (outer_grad2_0, outer_grad2_1)
+    outer_grad2 = (outer_grad2_aux, outer_grad2_main)
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution
     mu, X_outer, y_outer_main, y_outer_aux, inner_value_main, inner_value_aux = ctx.saved_tensors
