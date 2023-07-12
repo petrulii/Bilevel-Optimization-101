@@ -30,11 +30,11 @@ sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 from model.InnerSolution.InnerSolution import InnerSolution
 from model.BilevelProblem.BilevelProblem import BilevelProblem
 from model.NeuralNetworks.NeuralNetworkOuterModel import NeuralNetworkOuterModel
-from model.NeuralNetworks.NeuralNetworkInnerModel import NeuralNetworkInnerModel
+from model.NeuralNetworks.LinearNetwork import LinearNetwork
 from model.utils import *
 
 # Set logging
-wandb.init(group="functional_auxiliary_example", job_type="eval")
+wandb.init(group="Functional_auxiliary_example", job_type="1_kshot20")
 
 # Setting the directory to save figures to.
 figures_dir = "figures/"
@@ -48,50 +48,50 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-nb_aux_tasks = 2
-batch_size = 128
-max_epochs = 100
+nb_aux_tasks = 4
+batch_size = 64
+max_epochs = 10
 max_outer_iters = 100
-max_inner_dual_iters, max_inner_iters = 40, 15
+max_inner_dual_iters, max_inner_iters = 1000, 1000
 eval_every_n = 7
 
 # Get data
-n, m, m_out, m_in, X_train, X_val, y_train, y_val, coef = auxiliary_toy_data()
+n, m, X_train, X_val, y_train, y_val, coef = auxiliary_toy_data()
 
 # Dataloaders for inner and outer data
 inner_data = Data(X_train, y_train)
-inner_dataloader = DataLoader(dataset=inner_data, batch_size=batch_size, shuffle=True)
+inner_dataloader = DataLoader(dataset=inner_data, batch_size=batch_size, shuffle=True, drop_last=True)
 outer_data = Data(X_val, y_val)
-outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch_size, shuffle=True)
-test_dataloader = outer_dataloader
+outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch_size, shuffle=True, drop_last=True)
 
 # Inner model
 # Neural network to approximate the function h*
-inner_model = (NeuralNetworkInnerModel([2, 10, 20, 10, 3])).to(device)
+inner_model = (LinearNetwork([2, 1])).to(device)
 # Optimizer that improves the approximation of h*
 inner_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-4)
 inner_scheduler = None
 # Neural network to approximate the function a*
-inner_dual_model = (NeuralNetworkInnerModel([2, 10, 20, 10, 3])).to(device)
+inner_dual_model = (LinearNetwork([2, 1])).to(device)
 # Optimizer that improves the approximation of a*
-inner_dual_optimizer = torch.optim.Adam(inner_dual_model.parameters(), lr=1e-5)
+inner_dual_optimizer = torch.optim.Adam(inner_dual_model.parameters(), lr=1e-4)
 inner_dual_scheduler = None
 
 # Outer model
 # The outer neural network parametrized by the outer variable mu
-outer_model = (NeuralNetworkOuterModel([nb_aux_tasks, 1])).to(device)
+outer_model = None
 # Initialize mu
 mu0 = (torch.ones((nb_aux_tasks,1))).to(device)
+#mu0 = ((torch.Tensor([1,1,0,0])).reshape((nb_aux_tasks,1))).to(device)
 #mu0.normal_(mean=1, std=1)
 # Optimizer that improves the outer variable mu
-outer_optimizer = torch.optim.Adam([mu0], lr=1e-3)
+outer_optimizer = torch.optim.Adam([mu0], lr=0.01)
 outer_scheduler = None
 
 # Print configuration
-suffix = "Auxiliary_example"
+suffix = "Functional_example"
 print("Run configuration:", suffix)
 
-wandb.watch((inner_model),log_freq=100)
+wandb.watch((inner_model), log_freq=100)
 
 # Gather all models
 inner_models = (inner_model, inner_optimizer, inner_scheduler, inner_dual_model, inner_dual_optimizer, inner_dual_scheduler)
@@ -101,11 +101,20 @@ outer_models = (outer_model, outer_optimizer, outer_scheduler)
 relu = torch.nn.ReLU()
 MSE = nn.MSELoss()
 
+def masked_mse_loss(input, target, mask_value=-1):
+    mask = target != mask_value
+    masked_input = input[mask]
+    masked_target = target[mask]
+    # Return tensor with 0 if all values are mask_value
+    if len(masked_input) == 0:
+        return torch.tensor(0.0, dtype=input.dtype, device=input.device)
+    return F.mse_loss(masked_input, masked_target)
+
 # Outer objective function
 def fo(mu, inner_value, labels):
     (main_pred, aux_pred) = inner_value
     (main_label, aux_label) = labels
-    loss = MSE(main_pred, main_label)
+    loss = masked_mse_loss(main_pred, main_label)
     return loss
 
 # Inner objective function
@@ -116,7 +125,7 @@ def fi(mu, h_X_in, y_in):
     aux_pred = torch.sigmoid(aux_pred)
     (main_label, aux_label) = y_in
     aux_label = aux_label.T
-    loss = MSE(main_pred, main_label)
+    loss = masked_mse_loss(main_pred, main_label)
     aux_loss_vector = torch.zeros((nb_aux_tasks,1)).to(device)
     for task in range(nb_aux_tasks):
         aux_loss_vector[task] = MSE(aux_pred[:,task], aux_label[:,task])
@@ -125,10 +134,11 @@ def fi(mu, h_X_in, y_in):
     return loss + aux_loss
 
 # Optimize using neural implicit differention
-bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_iters=max_inner_iters, max_inner_dual_iters=max_inner_dual_iters, aux_dataloader=None)
-iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs, test_dataloader=test_dataloader, max_iters=max_outer_iters, eval_every_n=eval_every_n)
+bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_iters=max_inner_iters, max_inner_dual_iters=max_inner_dual_iters)
+iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(mu0, max_epochs=max_epochs, max_iters=max_outer_iters, eval_every_n=eval_every_n)
 
 # Show results
 print("mu:\n", mu0)
 print("\nNumber of iterations:", iters)
 print("Average iteration time:", np.average(times))
+print("Parameters:", inner_model.layer_1.weight.data)

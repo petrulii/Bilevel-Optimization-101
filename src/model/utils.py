@@ -208,33 +208,42 @@ class Data(Dataset):
 		self.len = len(self.y)
 
 	def __getitem__(self, index):
-		return self.X[index], self.y[index][0], (self.y[index][1], self.y[index][2]), index
+		return self.X[index], self.y[index][0], (self.y[index][1], self.y[index][2], self.y[index][3], self.y[index][4]), index
 
 	def __len__(self):
 		return self.len
 
 def auxiliary_toy_data():
+  seed=42
   # Setting the random seed.
-  set_seed(seed=42)
+  set_seed(seed)
   # Initialize dimesnions
-  n, m, m_out, m_in = 2, 100000, 30000, 70000
+  n, m = 2, 2048
+  k_shot = 20
   # The coefficient tensor of size (n,1) filled with values uniformally sampled from the range (0,1)
   coef = np.array([[1],[1]]).astype('float32')
-  coef_harm = np.array([[2],[-4]]).astype('float32')
+  coef_harm = np.array([[-1],[-1]]).astype('float32')
   # The data tensor of size (m,n) filled with values uniformally sampled from the range (0,1)
   X = np.random.uniform(size=(m, n)).astype('float32')
   # True h_star
   h_true = lambda X: X @ coef
   h_harm = lambda X: X @ coef_harm
   # Main labels
-  y_main = h_true(X)#+np.random.normal(scale=1.2, size=(m,1)).astype('float32')
+  y_main = h_true(X)+np.random.normal(scale=0.2, size=(m,1)).astype('float32')
   # Useful auxiliary labels
-  y_aux1 = h_true(X)#+np.random.normal(size=(m,1)).astype('float32')
+  y_aux1 = h_true(X)#+np.random.normal(scale=0.1, size=(m,1)).astype('float32')
+  # Useful auxiliary labels
+  y_aux2 = h_true(X)#+np.random.normal(scale=0.1, size=(m,1)).astype('float32')
   # Harmful auxiliary labels
-  y_aux2 = h_harm(X)#+np.random.normal(size=(m,1)).astype('float32')
-  y = np.hstack((y_main, y_aux1, y_aux2))
-  # Split X into 2 tensors with sizes [m_in, m_out] along dimension 0
-  X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.3, random_state=1)
+  y_aux3 = h_harm(X)#+np.random.normal(scale=0.1, size=(m,1)).astype('float32')
+  # Harmful auxiliary labels
+  y_aux4 = h_harm(X)#+np.random.normal(scale=0.1, size=(m,1)).astype('float32')
+  # Put all labels together
+  y = np.hstack((y_main, y_aux1, y_aux2, y_aux3, y_aux4))
+  X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.5, shuffle=True, random_state=seed)
+  # Set k training labels to -1
+  indices = np.random.choice(np.arange(y_train.shape[0]), replace=False, size=k_shot)
+  y_train[indices] = -1
   # Convert everything to PyTorch tensors
   X_train, X_val, y_train, y_val, coef = (torch.from_numpy(X_train)), (torch.from_numpy(X_val)), (torch.from_numpy(y_train)), (torch.from_numpy(y_val)), (torch.from_numpy(coef))
   print("X shape:", X.shape)
@@ -243,4 +252,4 @@ def auxiliary_toy_data():
   print("X training data:", X_train[1:5])
   print("y training labels:", y_train[1:5])
   print()
-  return n, m, m_out, m_in, X_train, X_val, y_train, y_val, coef
+  return n, m, X_train, X_val, y_train, y_val, coef

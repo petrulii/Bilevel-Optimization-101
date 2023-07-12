@@ -6,7 +6,8 @@ class NeuralNetworkInnerDualModel(nn.Module):
   A neural network to approximate the function a* for Neur. Imp. Diff.
   """
   def __init__(self, layer_sizes):
-    super(NeuralNetworkInnerDualModel, self).__init__()
+    self.output_dim = layer_sizes[-1]
+    super(NeuralNetworkInnerModel, self).__init__()
     self.layer_1 = nn.Linear(layer_sizes[0], layer_sizes[1])
     nn.init.kaiming_uniform_(self.layer_1.weight)
     self.layer_2 = nn.Linear(layer_sizes[1], layer_sizes[2])
@@ -16,8 +17,8 @@ class NeuralNetworkInnerDualModel(nn.Module):
     self.layer_4 = nn.Linear(layer_sizes[3], layer_sizes[4])
 
   def forward(self, x):
-    x = torch.relu(self.layer_1(x))
-    x = torch.tanh(self.layer_2(x))
-    x = torch.tanh(self.layer_3(x))
-    x = self.layer_4(x)
-    return x
+    res1 = torch.relu(self.layer_1(x))
+    res2 = torch.tanh(self.layer_2(res1))
+    res3 = torch.tanh(self.layer_3(res2))
+    res = self.layer_4(res3)
+    return (res[:, 0:1], res[:, 1:self.output_dim])

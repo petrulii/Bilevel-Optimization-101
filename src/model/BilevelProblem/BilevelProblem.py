@@ -9,21 +9,20 @@ from statistics import mean
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
+sys.path.append('/home/clear/ipetruli/packages/miniconda3/lib/python3.10/site-packages')
 
 from model.InnerSolution.InnerSolution import InnerSolution
-
 from sklearn.metrics import accuracy_score
-
-#from torchviz import make_dot
-
 from model.utils import get_memory_info, get_accuracy
+
+from torchviz import make_dot
 
 class BilevelProblem:
   """
   Instanciates the bilevel problem and solves it using Neural Implicit Differentiation.
   """
 
-  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200, max_inner_dual_iters=5, aux_dataloader=None):
+  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200, max_inner_dual_iters=5):
     """
     Init method.
       param outer_loss: outer level loss function
@@ -41,11 +40,7 @@ class BilevelProblem:
     self.batch_size = batch_size
     self.device = device
     self.outer_model, self.outer_optimizer, self.outer_scheduler = outer_model
-    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, max_iters=max_inner_iters, max_dual_iters=max_inner_dual_iters)
-    if aux_dataloader is None:
-      self.aux_dataloader = outer_dataloader
-    else:
-      self.aux_dataloader = aux_dataloader
+    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, max_epochs=100, max_iters=max_inner_iters, max_dual_iters=max_inner_dual_iters)
 
   def __input_check__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size):
     """
@@ -71,13 +66,8 @@ class BilevelProblem:
       param maxiter: maximum number of iterations
     """
     iters, outer_losses, inner_losses, val_accs, times, evaluated, acc_smooth = 0, [], [], [], [], False, 10
-    # Making sure gradient of mu is computed.
     for epoch in range(max_epochs):
-      epoch_iters = 0
-      epoch_loss = 0
-      #for X_outer, y_outer in self.outer_dataloader:
-      for data in self.aux_dataloader:
-        #print("Outer epoch:", epoch, "iteration:", iters)
+      for data in self.outer_dataloader:
         X_outer, main_label, aux_label, data_id = data
         aux_label = torch.stack(aux_label)
         y_outer = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
@@ -89,50 +79,37 @@ class BilevelProblem:
         mu.requires_grad = True
         forward_start = time.time()
         inner_value = self.inner_solution(mu, X_outer, y_outer)
+        print("h parameters:\n", self.inner_solution.model.layer_1.weight.data)
+        print("inner value 0 dimension:", inner_value[0].size())
+        print("inner value 1 dimension:", inner_value[1].size())
         wandb.log({"duration of forward": time.time() - forward_start})
-        #for pred in inner_value:
-        #  pred.retain_grad()
         loss = self.outer_loss(mu, inner_value, y_outer)
+        #make_dot(loss, show_attrs=True, show_saved=True).render("graph_loss", format="png")
         wandb.log({"inn. loss": self.inner_solution.loss})
         wandb.log({"inn. dual loss": self.inner_solution.dual_loss})
         wandb.log({"out. loss": loss.item()})
         wandb.log({"outer var. norm": torch.norm(mu).item()})
-        #make_dot(loss, show_attrs=True, show_saved=True).render("graph_loss", format="png")
         # Backpropagation
         self.outer_optimizer.zero_grad()
         backward_start = time.time()
         loss.backward()
-        wandb.log({"outer var. grad norm": torch.norm(mu.grad).item()})
-        wandb.log({"duration of backward": time.time() - backward_start})
         self.outer_optimizer.step()
+        wandb.log({"duration of backward": time.time() - backward_start})
+        # Log all aux. task coeficients
+        print("outer variable:", mu)
+        wandb.log({"outer var. norm helpful 1": torch.norm(mu[0]).item()})
+        wandb.log({"outer var. norm helpful 2": torch.norm(mu[1]).item()})
+        wandb.log({"outer var. norm harmful 3": torch.norm(mu[2]).item()})
+        wandb.log({"outer var. norm harmful 4": torch.norm(mu[3]).item()})
         # Update loss and iteration count
-        epoch_loss += loss.item()
-        epoch_iters += 1
         iters += 1
         duration = time.time() - start
         wandb.log({"iter. time": duration})
-        print("mu:", mu[0:10])
         times.append(duration)
         # Inner losses
         inner_losses.append(self.inner_solution.loss)
         # Outer losses
-        outer_losses.append(epoch_loss/epoch_iters)
-        # Evaluate
-        if (iters % eval_every_n == 0):
-          _, val_acc = self.evaluate(self.outer_dataloader, mu)
-          val_accs.append(val_acc)
-          wandb.log({"acc": val_acc})
-          if (test_dataloader!=None) and (not evaluated) and (len(val_accs)>acc_smooth) and (mean(val_accs[-acc_smooth:]) <= mean(val_accs[-(acc_smooth*2):-(acc_smooth)])):
-            test_loss, test_acc = self.evaluate(test_dataloader, mu)
-            wandb.log({"test loss": test_loss})
-            wandb.log({"test acc": test_acc})
-            evaluated = True
-        if epoch_iters >= max_iters:
-          break
-      # Print predictions and labels for a sanity check
-      _, class_pred = torch.max(inner_value[0], dim=1)
-      print("Train prediction:", class_pred[0:6])
-      print("Train label:", y_outer[0][0:6])
+        outer_losses.append(loss.item())
     return iters, outer_losses, inner_losses, val_accs, times
   
   def evaluate(self, dataloader, mu, max_iters=100):
@@ -162,3 +139,14 @@ class BilevelProblem:
       iters += 1
     self.inner_solution.eval = False
     return total_loss/iters, total_acc/iters
+
+# Evaluate
+#if (iters % eval_every_n == 0):
+#  _, val_acc = self.evaluate(self.outer_dataloader, mu)
+#  val_accs.append(val_acc)
+#  wandb.log({"acc": val_acc})
+# if (test_dataloader!=None) and (not evaluated) and (len(val_accs)>acc_smooth) and (mean(val_accs[-acc_smooth:]) <= mean(val_accs[-(acc_smooth*2):-(acc_smooth)])):
+#    test_loss, test_acc = self.evaluate(test_dataloader, mu)
+#    wandb.log({"test loss": test_loss})
+#    wandb.log({"test acc": test_acc})
+#    evaluated = True

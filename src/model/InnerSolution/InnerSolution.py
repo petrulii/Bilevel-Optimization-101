@@ -18,7 +18,7 @@ class InnerSolution(nn.Module):
   Instanciates the inner solution of the bilevel problem.
   """
 
-  def __init__(self, inner_loss, inner_dataloader, inner_models, device, max_iters, max_dual_iters):
+  def __init__(self, inner_loss, inner_dataloader, inner_models, device, max_epochs, max_iters=1000, max_dual_iters=1000):
     """
     Init method.
       param inner_loss: inner level objective function
@@ -32,6 +32,7 @@ class InnerSolution(nn.Module):
     self.device = device
     self.loss = 0
     self.dual_loss = 0
+    self.max_epochs = max_epochs
     self.max_iters = max_iters
     self.max_dual_iters = max_dual_iters
     self.dual_scheduler = 0
@@ -52,57 +53,67 @@ class InnerSolution(nn.Module):
     """
     Optimization loop for the inner-level model that approximates h*.
     """
-    total_loss, total_iters = 0, 0
-    for data in self.inner_dataloader:
-      X_inner, main_label, aux_label, data_id = data
-      aux_label = torch.stack(aux_label)
-      y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
-      # Move data to GPU
-      X_inner = X_inner.to(self.device, dtype=torch.float)
-      #y_inner = y_inner.to(self.device, dtype=torch.float)
-      # Get the prediction
-      h_X_i = self.model.forward(X_inner)
-      # Compute the loss
-      loss = self.inner_loss(mu, h_X_i, y_inner)
-      # Backpropagation
-      self.optimizer.zero_grad()
-      loss.backward()
-      self.optimizer.step()
-      total_loss += loss.item()
-      total_iters += 1
-      if total_iters >= self.max_iters:
-        break
-    self.loss = total_loss/total_iters
+    total_loss, total_epochs, total_iters = 0, 0, 0
+    for epoch in range(self.max_epochs):
+      total_epoch_loss, total_epoch_iters = 0, 0
+      for data in self.inner_dataloader:
+        X_inner, main_label, aux_label, data_id = data
+        aux_label = torch.stack(aux_label)
+        y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
+        # Move data to GPU
+        X_inner = X_inner.to(self.device, dtype=torch.float)
+        #y_inner = y_inner.to(self.device, dtype=torch.float)
+        # Get the prediction
+        h_X_i = self.model.forward(X_inner)
+        # Compute the loss
+        loss = self.inner_loss(mu, h_X_i, y_inner)
+        # Backpropagation
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        total_epoch_loss += loss.item()
+        total_iters += 1
+        total_epoch_iters += 1
+        if total_iters >= self.max_iters:
+          break
+      epoch_loss = total_epoch_loss/total_epoch_iters
+      total_loss += epoch_loss
+      total_epochs += 1
+    self.loss = total_loss/total_epochs
   
   def optimize_dual(self, mu, X_outer, outer_grad2):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
-    if self.max_dual_iters == 0:
-      return
-    total_loss, total_iters = 0, 0
-    for data in self.inner_dataloader:
-      X_inner, main_label, aux_label, data_id = data
-      aux_label = torch.stack(aux_label)
-      y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
-      # Move data to GPU
-      X_inner = X_inner.to(self.device, dtype=torch.float)
-      #y_inner = y_inner.to(self.device, dtype=torch.float)
-      # Compute prediction and loss
-      h_X_i = self.model(X_inner)
-      a_X_i = self.dual_model(X_inner)
-      a_X_o = self.dual_model(X_outer)
-      loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
-      # Backpropagation
-      self.dual_optimizer.zero_grad()
-      loss.backward()
-      self.dual_optimizer.step()
-      total_loss += loss.item()
-      total_iters += 1
-      if total_iters >= self.max_dual_iters:
-        self.dual_scheduler += 1
-        break
-    self.dual_loss = total_loss/total_iters
+    total_loss, total_epochs, total_iters = 0, 0, 0
+    for epoch in range(self.max_epochs):
+      total_epoch_loss, total_epoch_iters = 0, 0
+      for data in self.inner_dataloader:
+        X_inner, main_label, aux_label, data_id = data
+        aux_label = torch.stack(aux_label)
+        y_inner = (main_label.to(self.device, dtype=torch.float), aux_label.to(self.device, dtype=torch.float))
+        # Move data to GPU
+        X_inner = X_inner.to(self.device, dtype=torch.float)
+        #y_inner = y_inner.to(self.device, dtype=torch.float)
+        # Compute prediction and loss
+        h_X_i = self.model(X_inner)
+        a_X_i = self.dual_model(X_inner)
+        a_X_o = self.dual_model(X_outer)
+        loss = self.loss_H(mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2)
+        # Backpropagation
+        self.dual_optimizer.zero_grad()
+        loss.backward()
+        self.dual_optimizer.step()
+        total_epoch_loss += loss.item()
+        total_iters += 1
+        total_epoch_iters += 1
+        if total_iters >= self.max_dual_iters:
+          self.dual_scheduler += 1
+          break
+      epoch_loss = total_epoch_loss/total_epoch_iters
+      total_loss += epoch_loss
+      total_epochs += 1
+    self.dual_loss = total_loss/total_epochs
 
   def loss_H(self, mu, h_X_i, a_X_i, a_X_o, y_inner, outer_grad2):
     """
@@ -124,15 +135,15 @@ class InnerSolution(nn.Module):
     f = lambda h_X_i_0, h_X_i_1: self.inner_loss(mu, (h_X_i_0, h_X_i_1), y_inner)
     # Find the product with the hessian wrt h*(X)
     hessvp = autograd.functional.hvp(f, h_X_i, a_X_i)[1]
+    assert(len(hessvp)==nb_items)
     # Compute the loss
     term1, term2 = 0, 0
     for i in range(nb_items):
-      #term1 += torch.einsum('ij,ij->', a_X_i[i], hessvp[i])
+      assert((hessvp[i]).size()== h_X_i[i].size())
       term1 += torch.einsum('bj,bj->b', a_X_i[i], hessvp[i])
-    for i in range(nb_items):
-      #term2 += torch.einsum('ij,ij->',a_X_o[i], outer_grad2[i])
       term2 += torch.einsum('bj,bj->b', a_X_o[i], outer_grad2[i])
-    return (1/2)*torch.mean(term1)+torch.mean(term2)
+    assert(term1.size()==term2.size())
+    return torch.mean((1/2)*term1+term2)
 
   def compute_hessian_vector_prod(self, mu, X_outer, y_outer, inner_value, dual_value):
     """
@@ -185,6 +196,8 @@ class ArgMinOp(torch.autograd.Function):
     """
     Backward pass of a function that approximates h* for Neur. Imp. Diff.
     """
+    wandb.log({"outer_grad2_aux": torch.norm(outer_grad2_aux).item()})
+    wandb.log({"outer_grad2_main": torch.norm(outer_grad2_main).item()})
     outer_grad2 = (outer_grad2_aux, outer_grad2_main)
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution
