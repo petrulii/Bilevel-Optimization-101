@@ -3,10 +3,8 @@ import torch
 import wandb
 import numpy as np
 from torch.utils.data import DataLoader
-from pathlib import Path
-from torch.nn import ReLU, MSELoss
-import torch.optim as optim
-from torch.optim.lr_scheduler import StepLR
+from torch.nn import MSELoss
+#from torch.optim.lr_scheduler import StepLR
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
