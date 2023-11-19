@@ -51,7 +51,7 @@ data = (torch.from_numpy(instrumental_in), torch.from_numpy(treatment_in), torch
 #validation_data = (instrumental_val, treatment_val, outcome_val)
 
 # Set logging
-#wandb.init(group="Dsprites_KernelIV")
+wandb.init(group="Dsprites_KernelIV")
 
 # Loss helper functions
 MSE = nn.MSELoss()
@@ -67,15 +67,15 @@ def fi(outer_param, g_z_in, K_X):
     loss = 1/2*torch.norm(f_x_in - g_z_in)**2
     return loss
 
-mu0 = torch.tensor([[-0.2701],
-            [-0.2872],
+mu0 = torch.tensor([[-1],
+            [-1],
             [-0.1936],
             [-0.2549],
             [-0.2398],
             [ 0.0568],
             [ 0.0102],
             [ 0.1438],
-            [-0.1686],
+            [-1],
             [-0.0106],
             [-0.0145],
             [-0.1287],
@@ -110,7 +110,7 @@ mu0 = torch.tensor([[-0.2701],
             [-0.1068],
             [ 0.2427],
             [ 0.3761],
-            [ 0.1586],
+            [ 1],
             [-0.1132],
             [-0.0236],
             [-0.5959],

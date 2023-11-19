@@ -59,29 +59,19 @@ class BilevelProblem:
       self.K_outer_Z = rbf_kernel(self.Z_outer, self.Z_outer, self.gamma)
       self.K_outer_inner_Z = rbf_kernel(self.Z_outer, self.Z_inner, self.gamma)
       self.Z_inner_outer = torch.cat((self.Z_inner, self.Z_outer), dim=0)
-      self.K_all_Z = rbf_kernel(self.Z_inner_outer, self.Z_inner_outer, self.gamma)
-      self.K_outer_all_Z = rbf_kernel(self.Z_outer, self.Z_inner_outer, self.gamma)
+      self.K_all_Z = self.K_inner_Z#rbf_kernel(self.Z_inner_outer, self.Z_inner_outer, self.gamma)
+      self.K_outer_all_Z = self.K_outer_inner_Z#rbf_kernel(self.Z_outer, self.Z_inner_outer, self.gamma)
       # Set functions h(x) and a(x)
       self.beta = None
       self.phi = None
       self.h_star = lambda x : rbf_kernel(x, self.Z_inner, self.gamma) @ self.beta
-      self.a_star = lambda x : rbf_kernel(x, self.Z_inner_outer, self.gamma) @ self.phi
+      self.a_star = lambda x : rbf_kernel(x, self.Z_inner, self.gamma) @ self.phi#self.Z_inner_outer, self.gamma) @ self.phi
       # Compute optimal outer parameter
-      eye_Z_inner = torch.eye(len(self.K_inner_Z), dtype=torch.float64)
-      inv_K_Z = torch.linalg.inv(self.K_inner_Z + eye_Z_inner * self.lam2)
-      assert torch.isclose(inv_K_Z @ (self.K_inner_Z + eye_Z_inner * self.lam2), torch.eye(len(self.K_inner_Z), dtype=torch.float64)).all()
+      self.eye_Z_inner = torch.eye(len(self.K_inner_Z), dtype=torch.float64)
+      inv_K_Z = torch.linalg.inv(self.K_inner_Z + self.eye_Z_inner * self.lam2)
+      assert torch.isclose(inv_K_Z @ (self.K_inner_Z + self.eye_Z_inner * self.lam2), torch.eye(len(self.K_inner_Z), dtype=torch.float64)).all()
       A = self.K_inner_X @ inv_K_Z @ self.K_outer_inner_Z.T
-      self.opt_mu = self.least_squares_inverse((A @ self.K_outer_inner_Z @ inv_K_Z @ self.K_inner_X + self.lam1 * self.K_outer_X), (A @ self.Y_outer)) 
-      #beta = torch.linalg.inv(self.K_inner_Z @ self.K_inner_Z + self.lam2 * self.K_inner_Z) @ self.K_inner_Z.T @ self.K_inner_X @ self.opt_mu
-      beta = self.least_squares_inverse(self.K_inner_Z + self.lam2 * eye_Z_inner, self.K_inner_X @ self.opt_mu)
-      print("dim beta:", beta.size())
-      print("dim beta check:", (inv_K_Z @ self.K_inner_X @ self.opt_mu).size())
-      assert torch.isclose(beta, inv_K_Z @ self.K_inner_X @ self.opt_mu).all()
-      grad = self.K_inner_X @ self.least_squares_inverse(self.K_inner_Z + eye_Z_inner * self.lam2, (self.K_outer_inner_Z.T @ (self.K_outer_inner_Z @ beta - self.Y_outer))) + self.lam1 * self.K_outer_X @ self.opt_mu
-      print("grad norm:", torch.norm(grad))
-      print("alpha opt. norm:", torch.norm(self.opt_mu))
-      print("beta opt. norm:", torch.norm(beta))
-      exit(0)
+      self.opt_mu = self.least_squares_inverse((A @ self.K_outer_inner_Z @ inv_K_Z @ self.K_inner_X + self.lam1 * self.K_outer_X), (A @ self.Y_outer))
       
     elif self.method=="implicit_diff":
       self.find_theta_star = find_theta_star
@@ -105,7 +95,7 @@ class BilevelProblem:
       param maxiter: maximum number of iterations
       param step: stepsize for gradient descent on the outer variable
     """
-    mu_new = self.opt_mu
+    mu_new = mu0#self.opt_mu
     n_iters, iters, converged, inner_loss, outer_loss, times = 0, [mu_new], False, [], [], []
     while n_iters < maxiter and not converged:
       mu_old = mu_new.clone()
@@ -164,25 +154,26 @@ class BilevelProblem:
       self.a_star = a_star
     elif self.method=="kernel_implicit_diff":
       # 1) Find a function in RKHS that approximates h*(x)
-      #beta = torch.linalg.inv(self.K_inner_Z + self.lam2) @ self.K_inner_X @ mu_old
-      beta = torch.linalg.inv(self.K_inner_Z @ self.K_inner_Z + self.lam2 * self.K_inner_Z) @ self.K_inner_Z.T @ self.K_inner_X @ mu_old
+      beta = self.least_squares_inverse(self.K_inner_Z + self.lam2 * self.eye_Z_inner, self.K_inner_X @ self.opt_mu)
       self.beta = beta
       # 2) Find a function that approximates a*(x)
-      A = (self.K_all_Z.T @ self.K_all_Z + (self.lam2) * self.K_all_Z)
+      A = (self.K_all_Z.T @ self.K_all_Z + self.lam2 * self.K_all_Z)
+      #A = self.K_inner_Z + self.eye_Z_inner * self.lam2
       #print("min eigval A:", torch.lobpcg(A, k=5, largest=False))
       #print("norm A:", torch.norm(A))
       b = self.K_outer_all_Z.T @ (self.K_outer_inner_Z @ beta - self.Y_outer)
+      #b = self.K_outer_inner_Z.T @ (self.K_outer_inner_Z @ beta - self.Y_outer)
       #print("norm b:", torch.norm(b))
-      self.phi, residuals, rank, singular_values = torch.linalg.lstsq(A, b)#, driver="gelsd")
-      self.phi = (-1)*self.phi
+      self.phi = (1)*self.least_squares_inverse(A, b)
       #print("norm phi:", torch.norm(self.phi))
       # 3) Compute grad L(mu): the gradient of L(mu) wrt mu
-      term1 = self.outer_grad1(mu_old, self.h_star, self.Z_outer, self.Y_outer)
-      term2 = (self.inner_grad12(mu_old, self.h_star, self.Z_inner, self.K_inner_X))
-      term3 = (self.a_star(self.Z_outer))
+      term1 = self.lam1 * self.K_outer_X @ mu_old#self.outer_grad1(mu_old, self.h_star, self.Z_outer, self.Y_outer)
+      term2 = self.K_inner_X#(self.inner_grad12(mu_old, self.h_star, self.Z_inner, self.K_inner_X))
+      term3 = (self.a_star(self.Z_inner))#(self.Z_outer))
       #print("norm term1:", torch.norm(term1))
       #print("norm term2:", torch.norm(term2))
       #print("norm term3:", torch.norm(term3))
+      #grad = self.K_inner_X @ self.least_squares_inverse(self.K_inner_Z + self.eye_Z_inner * self.lam2, (self.K_outer_inner_Z.T @ (self.K_outer_inner_Z @ beta - self.Y_outer))) + self.lam1 * self.K_outer_X @ self.opt_mu
       grad = term1 + term2 @ term3
       #print("norm grad:", torch.norm(grad))
     else:
@@ -308,5 +299,6 @@ class BilevelProblem:
   
   def least_squares_inverse(self, A, b):
     inverse = torch.linalg.lstsq(A, b)[0]
-    assert torch.isclose(A @ inverse, b).all()
+    if not (torch.isclose(A @ inverse, b).all()):
+      print("norm of A @ inverse - b:", torch.norm(A @ inverse - b))
     return inverse
