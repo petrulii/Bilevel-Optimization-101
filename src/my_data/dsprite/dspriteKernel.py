@@ -99,16 +99,24 @@ def generate_train_dsprite(data_size, rand_seed, device, val_size=100):
     outcome = structural + outcome_noise
     structural = structural[:, np.newaxis]
     outcome = outcome[:, np.newaxis]
-    train_data_final = TrainDataSet(treatment=treatment[:-val_size, :],
-                        instrumental=instrumental[:-val_size, :],
-                        covariate=None,
-                        structural=structural[:-val_size, :],
-                        outcome=outcome[:-val_size, :])
-    validation_data_final = TrainDataSet(treatment=treatment[-val_size:, :],
-                        instrumental=instrumental[-val_size:, :],
-                        covariate=None,
-                        structural=structural[-val_size:, :],
-                        outcome=outcome[-val_size:, :])
+    if val_size == 0:
+        train_data_final = TrainDataSet(treatment=treatment,
+                            instrumental=instrumental,
+                            covariate=None,
+                            structural=structural,
+                            outcome=outcome)
+        validation_data_final = None
+    else:
+        train_data_final = TrainDataSet(treatment=treatment[:-val_size, :],
+                            instrumental=instrumental[:-val_size, :],
+                            covariate=None,
+                            structural=structural[:-val_size, :],
+                            outcome=outcome[:-val_size, :])
+        validation_data_final = TrainDataSet(treatment=treatment[-val_size:, :],
+                            instrumental=instrumental[-val_size:, :],
+                            covariate=None,
+                            structural=structural[-val_size:, :],
+                            outcome=outcome[-val_size:, :])
     return train_data_final, validation_data_final
 
 def split_train_data(train_data, split_ratio):
@@ -155,6 +163,32 @@ class DspritesTestData(Dataset):
 
   def __len__(self):
     return self.len
+        
+"""
+def rbf_kernel(X, Y, gamma):
+    X = X.unsqueeze(1)
+    Y = Y.unsqueeze(0)
+    diff = X - Y
+    squared_distance = torch.sum(diff ** 2, dim=-1)
+    return torch.exp(-gamma * squared_distance)
+"""
+
+def rbf_kernel(X, Y, gamma):
+    # Ensure X and Y have the same dtype
+    X = X.to(Y.dtype)
+    # Unsqueezing to match dimensions
+    X = X.unsqueeze(1)
+    Y = Y.unsqueeze(0)
+    # Calculate the RBF kernel with loops
+    n, m, d = X.shape[0], Y.shape[1], X.shape[2]
+    squared_distance = torch.empty((n, m), dtype=torch.float64, device=X.device)
+    for i in range(n):
+        for j in range(m):
+            diff = X[i] - Y[:, j]
+            squared_distance[i, j] = -gamma * torch.sum(diff ** 2)
+    # Exponentiate in-place
+    squared_distance.exp_()
+    return squared_distance
 
 class KernelRidge(nn.Module):
     def __init__(self, alpha=1.0, kernel='linear', gamma=None, dual_coef_=None):
@@ -172,7 +206,7 @@ class KernelRidge(nn.Module):
             if self.kernel == 'linear':
                 self.K = torch.mm(X, X.t())
             elif self.kernel == 'rbf':
-                self.K = self.rbf_kernel(X, X, self.gamma)
+                self.K = rbf_kernel(X, X, self.gamma)
             else:
                 raise ValueError("Unsupported kernel")
 
@@ -191,7 +225,7 @@ class KernelRidge(nn.Module):
             if self.kernel == 'linear':
                 K_test = torch.mm(X, X.t())
             elif self.kernel == 'rbf':
-                K_test = self.rbf_kernel(X, X, self.gamma)
+                K_test = rbf_kernel(X, X, self.gamma)
             else:
                 raise ValueError("Unsupported kernel")
 
@@ -199,17 +233,3 @@ class KernelRidge(nn.Module):
         y_pred = torch.mm(K_test, self.dual_coef_)
 
         return y_pred
-
-    def rbf_kernel(self, X, Y, gamma):
-        X = X.unsqueeze(1)
-        Y = Y.unsqueeze(0)
-        diff = X - Y
-        squared_distance = torch.sum(diff ** 2, dim=-1)
-        return torch.exp(-gamma * squared_distance)
-
-def rbf_kernel(X, Y, gamma):
-    X = X.unsqueeze(1)
-    Y = Y.unsqueeze(0)
-    diff = X - Y
-    squared_distance = torch.sum(diff ** 2, dim=-1)
-    return torch.exp(-gamma * squared_distance)

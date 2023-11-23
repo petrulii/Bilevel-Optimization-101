@@ -111,16 +111,16 @@ class BilevelProblem:
         outer_losses.append(loss.item())
         # Evaluate on validation data and check the stopping condition
         if (validation_data!=None) and (iters % eval_every_n == 0):#(not evaluated) and (len(val_accs)>acc_smooth) and (mean(val_accs[-acc_smooth:]) <= mean(val_accs[-(acc_smooth*2):-(acc_smooth)])):
-          #feature = augment_stage2_feature(inner_value)
-          #u = fit_linear(Y, feature, 0.)
-          wandb.log({"val. loss": self.evaluate(validation_data, outer_param)})#, u)})
+          feature = augment_stage2_feature(inner_value)
+          #u = fit_linear(Y, feature, 0.1)
+          wandb.log({"val. loss": self.evaluate(validation_data, outer_param)})
           if (test_data!=None):
-            wandb.log({"test loss": self.evaluate(test_data, outer_param)})#, u)})
+            wandb.log({"test loss": self.evaluate(test_data, outer_param)})
             #evaluated = True
       if not(self.outer_scheduler is None):
         self.outer_scheduler.step()
         wandb.log({"outer lr": self.outer_optimizer.param_groups[0]['lr']})
-    return iters, outer_losses, inner_losses, val_accs, times
+    return iters, outer_losses, inner_losses, val_losses, times
 
   def evaluate(self, data, outer_param):#, u):
     """
@@ -133,16 +133,17 @@ class BilevelProblem:
       self.inner_solution.model.train(False)
       self.inner_solution.dual_model.train(False)
       self.inner_solution.eval = True
-      u_dim = 33
+      #u_dim = 33
       Y = (torch.from_numpy(data.outcome)).to(self.device, dtype=torch.float)
       X = (torch.from_numpy(data.treatment)).to(self.device, dtype=torch.float)
-      u = torch.reshape(outer_param[:u_dim], (u_dim,1))
-      wandb.log({"test u norm": torch.norm(u)})
-      outer_param_without_u = outer_param[u_dim:]
-      outer_NN_dic = tensor_to_state_dict(self.outer_model, outer_param_without_u, self.device)
+      #u = torch.reshape(outer_param[:u_dim], (u_dim,1))
+      #outer_param_without_u = outer_param[u_dim:]
+      #outer_NN_dic = tensor_to_state_dict(self.outer_model, outer_param_without_u, self.device)
+      outer_NN_dic = tensor_to_state_dict(self.outer_model, outer_param, self.device)
       # Get the value of f(X)
       treatment_feature = torch.func.functional_call(self.outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X)
-      loss = MSE((treatment_feature @ u[:-1] + u[-1]), Y)
+      #loss = MSE((treatment_feature @ u[:-1] + u[-1]), Y)
+      loss = MSE(treatment_feature, Y)
       self.outer_model.train(True)
       self.inner_solution.model.train(True)
       self.inner_solution.dual_model.train(True)

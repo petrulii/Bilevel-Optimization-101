@@ -12,7 +12,7 @@ sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 from model.utils import *
 # The experiment-specific functions
 from my_data.dsprite.trainer import DFIVTrainer
-from my_data.dsprite.dspriteDFIV_original import *
+from my_data.dsprite.dspriteDFIV import *
 
 # Set seed
 seed = 42

@@ -73,12 +73,11 @@ class InnerSolution(nn.Module):
         total_epoch_loss += loss.item()
         total_iters += 1
         total_epoch_iters += 1
-        #if total_iters >= self.max_iters:
-        #  break
       epoch_loss = total_epoch_loss/total_epoch_iters
       total_loss += epoch_loss
       total_epochs += 1
-    #self.scheduler.step()
+      grad_norm = (sum([torch.norm(p.grad)**2 for p in self.model.parameters()]))
+      wandb.log({"inner grad. norm": grad_norm})
     self.loss = total_loss/total_epochs
   
   def optimize_dual(self, outer_param, X_outer, outer_grad):
@@ -95,16 +94,18 @@ class InnerSolution(nn.Module):
         X = X.to(self.device, dtype=torch.float)
         Y = Y.to(self.device, dtype=torch.float)
         # Get the predictions
+        #with torch.no_grad():
+        #  h_X_i = self.model.forward(Z)
+        #  Z_feature = h_X_i
+        #  X_outer_feature = self.model.forward(X_outer)
+        #  h_X_i.detach()
+        #  X_outer_feature.detach()
         with torch.no_grad():
-          h_X_i = self.model.forward(Z)
-          Z_feature = h_X_i
-          X_outer_feature = self.model.forward(X_outer)
-          h_X_i.detach()
-          X_outer_feature.detach()
-        #a_X_i = self.dual_model(Z)
-        #a_X_o = self.dual_model(X_outer)
-        a_X_i = self.dual_model(Z_feature)
-        a_X_o = self.dual_model(X_outer_feature)
+          h_X_i = self.model(Z)
+        a_X_i = self.dual_model(Z)
+        a_X_o = self.dual_model(X_outer)
+        #a_X_i = self.dual_model(Z_feature)
+        #a_X_o = self.dual_model(X_outer_feature)
         # Compute the loss
         loss = self.loss_H(outer_param, h_X_i, a_X_i, a_X_o, X, outer_grad)
         # Backpropagation
@@ -114,15 +115,11 @@ class InnerSolution(nn.Module):
         total_epoch_loss += loss.item()
         total_iters += 1
         total_epoch_iters += 1
-        #if total_iters >= self.max_dual_iters:
-        #  break
       epoch_loss = total_epoch_loss/total_epoch_iters
       total_loss += epoch_loss
       total_epochs += 1
-      # Compute the global L2 gradient norm
       dual_grad_norm = (sum([torch.norm(p.grad)**2 for p in self.dual_model.parameters()]))
       wandb.log({"dual grad. norm": dual_grad_norm})
-    #self.dual_scheduler.step()
     self.dual_loss = total_loss/total_epochs
 
   def loss_H(self, outer_param, h_X_i, a_X_i, a_X_o, y_inner, outer_grad):
@@ -199,9 +196,10 @@ class ArgMinOp(torch.autograd.Function):
       # in the outer loop where we optimize the outer objective g(outer_param, h).
       if not inner_solution.eval:
         inner_solution.optimize_dual(outer_param, X_outer, outer_grad)
-    X_outer_feature = inner_solution.model.forward(X_outer)
-    X_outer_feature.detach()
-    inner_solution.dual_value = inner_solution.dual_model(X_outer_feature)
+    #X_outer_feature = inner_solution.model.forward(X_outer)
+    #X_outer_feature.detach()
+    #inner_solution.dual_value = inner_solution.dual_model(X_outer_feature)
+    inner_solution.dual_value = inner_solution.dual_model(X_outer)
     # TODO: the following line is a test
     #inner_solution.dual_value = (-1*outer_grad).detach()#(torch.ones_like(inner_solution.dual_value[0])*(-10), torch.ones_like(inner_solution.dual_value[1])*(-10))
     grad = inner_solution.compute_hessian_vector_prod(outer_param, X_outer, y_outer, inner_value)

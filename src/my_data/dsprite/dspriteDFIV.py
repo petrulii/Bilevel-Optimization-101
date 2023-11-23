@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 from numpy.random import default_rng
 from torch.nn.utils import spectral_norm
 from typing import NamedTuple, Optional, Tuple
+from sklearn.model_selection import train_test_split
 
 class TrainDataSet(NamedTuple):
     treatment: np.ndarray
@@ -31,35 +32,50 @@ class TrainDataSetTorch(NamedTuple):
     outcome: torch.Tensor
     structural: torch.Tensor
 
+    @classmethod
+    def from_numpy(cls, train_data: TrainDataSet):
+        covariate = None
+        if train_data.covariate is not None:
+            covariate = torch.tensor(train_data.covariate, dtype=torch.float32)
+        return TrainDataSetTorch(treatment=torch.tensor(train_data.treatment, dtype=torch.float32),
+                                 instrumental=torch.tensor(train_data.instrumental, dtype=torch.float32),
+                                 covariate=covariate,
+                                 outcome=torch.tensor(train_data.outcome, dtype=torch.float32),
+                                 structural=torch.tensor(train_data.structural, dtype=torch.float32))
+
+    def to_gpu(self):
+        covariate = None
+        if self.covariate is not None:
+            covariate = self.covariate.cuda()
+        return TrainDataSetTorch(treatment=self.treatment.cuda(),
+                                 instrumental=self.instrumental.cuda(),
+                                 covariate=covariate,
+                                 outcome=self.outcome.cuda(),
+                                 structural=self.structural.cuda())
+
+
 class TestDataSetTorch(NamedTuple):
     treatment: torch.Tensor
     covariate: torch.Tensor
     structural: torch.Tensor
 
+    @classmethod
+    def from_numpy(cls, test_data: TestDataSet):
+        covariate = None
+        if test_data.covariate is not None:
+            covariate = torch.tensor(test_data.covariate, dtype=torch.float32)
+        return TestDataSetTorch(treatment=torch.tensor(test_data.treatment, dtype=torch.float32),
+                                covariate=covariate,
+                                structural=torch.tensor(test_data.structural, dtype=torch.float32))
+    def to_gpu(self):
+        covariate = None
+        if self.covariate is not None:
+            covariate = self.covariate.cuda()
+        return TestDataSetTorch(treatment=self.treatment.cuda(),
+                                covariate=covariate,
+                                structural=self.structural.cuda())
+
 DATA_PATH = pathlib.Path(__file__).resolve().parent
-
-def generate_dsprites_image(scale, orientation, posX, posY, imgs, latents_sizes, latents_bases):
-    """
-    Generate an image from the dSprites dataset based on given parameters.
-
-    Args:
-    - posX (int): X position index (0 to 31).
-    - posY (int): Y position index (0 to 31).
-    - scale (int): Scale index (0 to 5).
-    - orientation (int): Orientation index (0 to 39).
-
-    Returns:
-    - image (numpy.ndarray): The generated image as a numpy array.
-    """
-
-    # Convert input parameters to a latent vector
-    latent_vector = [0, 2, scale, orientation, posX, posY]
-    latent_idx = np.array(latent_vector).dot(latents_bases)
-
-    # Get the image corresponding to the latent vector
-    image = imgs[int(latent_idx)].squeeze()  # Squeeze to remove single dimensions
-
-    return image.reshape((64 * 64, 1)).astype(np.float64)
 
 def image_id(latent_bases: np.ndarray, posX_id_arr: np.ndarray, posY_id_arr: np.ndarray,
              orientation_id_arr: np.ndarray,
@@ -70,104 +86,95 @@ def image_id(latent_bases: np.ndarray, posX_id_arr: np.ndarray, posY_id_arr: np.
     idx = np.c_[color_id_arr, shape_id_arr, scale_id_arr, orientation_id_arr, posX_id_arr, posY_id_arr]
     return idx.dot(latent_bases)
 
-def structural_func(image, B):
-    return (np.power((np.linalg.norm(B @ image)), 2) - 5000) / 1000
 
-def generate_dsprite_data(train_size, val_size, device, seed=42):
-    # Random seed
-    rng = default_rng(seed=seed)
-    # Get the data path and load the image array.
+def structural_func(image, weights):
+    return (np.mean((image.dot(weights))**2, axis=1) - 5000) / 1000
+
+
+def generate_test_dsprite(device):
     with FileLock("./data.lock"):
         dataset_zip = np.load(DATA_PATH.joinpath("dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"),
                               allow_pickle=True, encoding="bytes")
-        weights = (np.load(DATA_PATH.joinpath("dsprite_mat.npy")).T) * 0.01
-    
-    # Extract relevant data from the dataset, dataset_zip (npz file): the loaded dSprites dataset.   
+        weights = np.load(DATA_PATH.joinpath("dsprite_mat.npy"))
+
     imgs = dataset_zip['imgs']
+    latents_values = dataset_zip['latents_values']
     metadata = dataset_zip['metadata'][()]
+
     latents_sizes = metadata[b'latents_sizes']
     latents_bases = np.concatenate((latents_sizes[::-1].cumprod()[::-1][1:], np.array([1, ])))
 
-    # Define latent variables for test data (scale, orientation, posX, posY) for test data.
-    posX_id_arr, posY_id_arr = [0, 5, 10, 15, 20, 25, 30], [0, 5, 10, 15, 20, 25, 30]
-    scale_id_arr, orientation_arr = [0, 3, 5], [0, 10, 20, 30]
-    
-    # Generate test data
-    treatment_test, outcome_test = [], []
+    posX_id_arr = [0, 5, 10, 15, 20, 25, 30]
+    posY_id_arr = [0, 5, 10, 15, 20, 25, 30]
+    scale_id_arr = [0, 3, 5]
+    orientation_arr = [0, 10, 20, 30]
+    latent_idx_arr = []
     for posX, posY, scale, orientation in product(posX_id_arr, posY_id_arr, scale_id_arr, orientation_arr):
-        # Use the 64*64 dimensional images as the treatment variable X.
-        treatment = generate_dsprites_image(scale, orientation, posX, posY, imgs, latents_sizes, latents_bases)
-        treatment_test.append(treatment.flatten())
-        # Apply the structural function to generate the outcome Y.
-        outcome_test.append(structural_func(treatment, weights).flatten())
-    treatment_test = torch.from_numpy(np.vstack(treatment_test)).float().to(device)
-    outcome_test = torch.from_numpy(np.vstack(outcome_test)).float().to(device)
+        latent_idx_arr.append([0, 2, scale, orientation, posX, posY])
 
-    # Sample latent variables for train data (scale, orientation, posX, posY) for test data.
-    posX_id_arr, posY_id_arr = rng.integers(32, size=train_size*2), rng.integers(32, size=train_size*2)
-    scale_id_arr, orientation_arr = rng.integers(6, size=train_size), rng.integers(40, size=train_size)
-    
-    # Generate train data
-    instrumental_train, treatment_train, outcome_train, structural_train = [], [], [], []
-    for posX, posY, scale, orientation in product(posX_id_arr, posY_id_arr, scale_id_arr, orientation_arr):
-        # Use posX, scale and orientation as the instrumental variable Z.
-        instrumental_train.append(np.array([0.5 + (scale / 5) * 0.5, (orientation / 39) * (2 * np.pi), posX / 31]).flatten())
-        # Use the 64*64 dimensional images as the treatment variable X.
-        treatment_noiseless = generate_dsprites_image(scale, orientation, posX, posY, imgs, latents_sizes, latents_bases)
-        treatment = (treatment_noiseless + rng.normal(0.0, 0.01, (64*64, 1)))
-        treatment_train.append (treatment.flatten())
-        # Apply the structural function to generate the outcome Y, here position Y = posY / 31, since posY is the index.
-        outcome_noise = 32 * ((posY / 31) - 0.5) + rng.normal(0.0, 0.5)
-        structural = structural_func(treatment_noiseless, weights)
-        outcome_train.append((structural + outcome_noise).flatten())
-        structural_train.append(structural.flatten())
-    instrumental_train = torch.from_numpy(np.vstack(instrumental_train)).float().to(device)
-    treatment_train = torch.from_numpy(np.vstack(treatment_train)).float().to(device)
-    outcome_train = torch.from_numpy(np.vstack(outcome_train)).float().to(device)
-    structural_train = torch.from_numpy(np.vstack(structural_train)).float().to(device)
+    image_idx_arr = np.array(latent_idx_arr).dot(latents_bases)
+    data_size = 7 * 7 * 3 * 4
+    treatment = imgs[image_idx_arr].reshape((data_size, 64 * 64))
+    structural = structural_func(treatment, weights)
+    structural = structural[:, np.newaxis]
+    # Moving to gpu
+    treatment = torch.from_numpy(treatment).float().to(device)
+    structural = torch.from_numpy(structural).float().to(device)
+    return TestDataSet(treatment=treatment, covariate=None, structural=structural)
 
-    # Sample latent variables for validation data (scale, orientation, posX, posY) for test data.
-    posX_id_arr, posY_id_arr = rng.integers(32, size=val_size*2), rng.integers(32, size=val_size*2)
-    scale_id_arr, orientation_arr = rng.integers(6, size=val_size), rng.integers(40, size=val_size)
 
-    # Generate validation data
-    instrumental_val, treatment_val, outcome_val, structural_val = [], [], [], []
-    for posX, posY, scale, orientation in product(posX_id_arr, posY_id_arr, scale_id_arr, orientation_arr):
-        # Use posX, scale and orientation as the instrumental variable Z.
-        instrumental_val.append(np.array([0.5 + (scale / 5) * 0.5, (orientation / 39) * (2 * np.pi), posX / 31]).flatten())
-        # Use the 64*64 dimensional images as the treatment variable X.
-        treatment_noiseless = generate_dsprites_image(scale, orientation, posX, posY, imgs, latents_sizes, latents_bases)
-        treatment = ((treatment_noiseless + rng.normal(0.0, 0.01, (64*64, 1))))
-        treatment_val.append (treatment.flatten())
-        # Apply the structural function to generate the outcome Y, here position Y = posY / 31, since posY is the index.
-        outcome_noise = 32 * ((posY / 31) - 0.5) + rng.normal(0.0, 0.5)
-        structural = structural_func(treatment_noiseless, weights)
-        outcome_val.append((structural + outcome_noise).flatten())
-        structural_val.append(structural.flatten())
-    instrumental_val = torch.from_numpy(np.vstack(instrumental_val)).float().to(device)
-    treatment_val = torch.from_numpy(np.vstack(treatment_val)).float().to(device)
-    outcome_val = torch.from_numpy(np.vstack(outcome_val)).float().to(device)
-    structural_val = torch.from_numpy(np.vstack(structural_val)).float().to(device)
+def generate_train_dsprite(data_size, rand_seed, device):
+    with FileLock("./data.lock"):
+        dataset_zip = np.load(DATA_PATH.joinpath("dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz"),
+                              allow_pickle=True, encoding="bytes")
+        weights = np.load(DATA_PATH.joinpath("dsprite_mat.npy"))
 
-    print("Test data type:", (treatment_test.type()), (outcome_test.type()))
-    print("Test data shape:", (treatment_test.size()), (outcome_test.size()))
-    print("Train data shape:", (instrumental_train.size()), (treatment_train.size()), (outcome_train.size()))
-    print("Validation data shape:", (instrumental_val.size()), (treatment_val.size()), (outcome_val.size()))
-    
-    test_data = TestDataSetTorch(treatment=treatment_test,
-                       covariate=None,
-                       structural=outcome_test)
-    train_data = TrainDataSetTorch(treatment=treatment_train,
-                        instrumental=instrumental_train,
+    imgs = dataset_zip['imgs']
+    latents_values = dataset_zip['latents_values']
+    metadata = dataset_zip['metadata'][()]
+
+    latents_sizes = metadata[b'latents_sizes']
+    latents_bases = np.concatenate((latents_sizes[::-1].cumprod()[::-1][1:], np.array([1, ])))
+
+    rng = default_rng(seed=rand_seed)
+    posX_id_arr = rng.integers(32, size=data_size)
+    posY_id_arr = rng.integers(32, size=data_size)
+    scale_id_arr = rng.integers(6, size=data_size)
+    orientation_arr = rng.integers(40, size=data_size)
+    image_idx_arr = image_id(latents_bases, posX_id_arr, posY_id_arr, orientation_arr, scale_id_arr)
+    treatment = imgs[image_idx_arr].reshape((data_size, 64 * 64)).astype(np.float64)
+    treatment += rng.normal(0.0, 0.1, treatment.shape)
+    latent_feature = latents_values[image_idx_arr]  # (color, shape, scale, orientation, posX, posY)
+    instrumental = latent_feature[:, 2:5]  # (scale, orientation, posX)
+    outcome_noise = (posY_id_arr - 16.0) + rng.normal(0.0, 0.5, data_size)
+    structural = structural_func(treatment, weights)
+    outcome = structural + outcome_noise
+    structural = structural[:, np.newaxis]
+    outcome = outcome[:, np.newaxis]
+    # Moving to gpu
+    treatment = torch.from_numpy(treatment).float().to(device)
+    instrumental = torch.from_numpy(instrumental).float().to(device)
+    structural = torch.from_numpy(structural).float().to(device)
+    outcome = torch.from_numpy(outcome).float().to(device)
+    return TrainDataSet(treatment=treatment,
+                        instrumental=instrumental,
                         covariate=None,
-                        structural=structural_train,
-                        outcome=outcome_train)
-    val_data = TrainDataSetTorch(treatment=treatment_val,
-                        instrumental=instrumental_val,
-                        covariate=None,
-                        structural=structural_val,
-                        outcome=outcome_val)
-    return train_data, val_data, test_data
+                        structural=structural,
+                        outcome=outcome)
+
+def split_train_data(train_data, split_ratio):
+    n_data = train_data[0].shape[0]
+    idx_train_1st, idx_train_2nd = train_test_split(np.arange(n_data), train_size=split_ratio)
+
+    def get_data(data, idx):
+        return data[idx] if data is not None else None
+
+    train_1st_data = TrainDataSet(*[get_data(data, idx_train_1st) for data in train_data])
+    train_2nd_data = TrainDataSet(*[get_data(data, idx_train_2nd) for data in train_data])
+    train_1st_data_t = TrainDataSetTorch.from_numpy(train_1st_data)
+    train_2nd_data_t = TrainDataSetTorch.from_numpy(train_2nd_data)
+
+    return train_1st_data_t, train_2nd_data_t
 
 class DspritesData(Dataset):
   """
