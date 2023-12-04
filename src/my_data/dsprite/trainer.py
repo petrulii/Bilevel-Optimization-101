@@ -44,7 +44,6 @@ def linear_reg_loss(target, feature, reg):
     weight = fit_linear(target, feature, reg)
     pred = linear_reg_pred(feature, weight)
     wandb.log({"inn. loss": (MSE(pred, target)).item()})
-    #wandb.log({"V norm squared": torch.norm(weight) ** 2})
     loss = torch.norm((target - pred)) ** 2 + reg * torch.norm(weight) ** 2
     return loss
 
@@ -78,9 +77,9 @@ def fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_f
     feature = augment_stage2_feature(predicted_treatment_feature)
     stage2_weight = fit_linear(outcome_2nd_t, feature, lam2)
     pred = linear_reg_pred(feature, stage2_weight)
-    wandb.log({"out. loss": (MSE(pred, outcome_2nd_t) + lam2 * torch.norm(stage2_weight) ** 2).item()})
-    wandb.log({"out. loss term1": (MSE(pred, outcome_2nd_t)).item()})
-    wandb.log({"out. loss term2": (lam2 * torch.norm(stage2_weight) ** 2).item()})
+    #wandb.log({"out. loss with reg.": (MSE(pred, outcome_2nd_t) + lam2 * torch.norm(stage2_weight) ** 2).item()})
+    wandb.log({"out. loss": (MSE(pred, outcome_2nd_t)).item()})
+    #wandb.log({"out. loss term2": (lam2 * torch.norm(stage2_weight) ** 2).item()})
     stage2_loss = torch.norm((outcome_2nd_t - pred)) ** 2 + lam2 * torch.norm(stage2_weight) ** 2
     return dict(stage1_weight=stage1_weight,
                 predicted_treatment_feature=predicted_treatment_feature,
@@ -199,5 +198,5 @@ class DFIVTrainer:
         # Get the value of f(X)
         treatment_feature = self.treatment_net(test_dataset.treatment).detach()
         loss = MSE((treatment_feature @ u[:-1]) + u[-1], test_dataset.structural)
-        wandb.log({"test u norm": (torch.norm(u)).item()})
+        #wandb.log({"test u norm": (torch.norm(u)).item()})
         wandb.log({"test loss": loss.item()})

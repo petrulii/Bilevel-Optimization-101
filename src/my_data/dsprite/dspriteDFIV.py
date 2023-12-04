@@ -209,19 +209,39 @@ class DspritesTestData(Dataset):
   def __len__(self):
     return self.len
 
+class InnerModel(nn.Module):
+    def __init__(self):
+        super(InnerModel, self).__init__()
+        self.layer1 = spectral_norm(nn.Linear(3, 256))
+        self.layer2 = nn.ReLU()
+        self.layer3 = spectral_norm(nn.Linear(256, 128))
+        self.layer4 = nn.ReLU()
+        self.layer5 = nn.BatchNorm1d(128)
+        self.layer6 = spectral_norm(nn.Linear(128, 128))
+        self.layer7 = nn.ReLU()
+        self.layer8 = nn.BatchNorm1d(128)
+        self.layer9 = spectral_norm(nn.Linear(128, 32))
+        self.layer10 = nn.BatchNorm1d(32)
+        self.layer11 = nn.ReLU()
+
+    def forward(self, x):
+        res = (self.layer11(self.layer10(self.layer9(self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x))))))))))))
+        return res
+
 def build_net_for_dsprite(seed):
   torch.manual_seed(seed)
-  instrumental_net = nn.Sequential(spectral_norm(nn.Linear(3, 256)),
-                nn.ReLU(),
-                spectral_norm(nn.Linear(256, 128)),
-                nn.ReLU(),
-                nn.BatchNorm1d(128),
-                spectral_norm(nn.Linear(128, 128)),
-                nn.ReLU(),
-                nn.BatchNorm1d(128),
-                spectral_norm(nn.Linear(128, 32)),
-                nn.BatchNorm1d(32),
-                nn.ReLU())
+  instrumental_net = InnerModel()
+  """nn.Sequential(spectral_norm(nn.Linear(3, 256)),
+  nn.ReLU(),
+  spectral_norm(nn.Linear(256, 128)),
+  nn.ReLU(),
+  nn.BatchNorm1d(128),
+  spectral_norm(nn.Linear(128, 128)),
+  nn.ReLU(),
+  nn.BatchNorm1d(128),
+  spectral_norm(nn.Linear(128, 32)),
+  nn.BatchNorm1d(32),
+  nn.ReLU())"""
   torch.manual_seed(seed)
   response_net = nn.Sequential(spectral_norm(nn.Linear(64 * 64, 1024)),
                                 nn.ReLU(),

@@ -18,7 +18,7 @@ class InnerSolution(nn.Module):
   Instanciates the inner solution of the bilevel problem.
   """
 
-  def __init__(self, inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs, max_iters=1000, max_dual_iters=1000):
+  def __init__(self, inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=100, max_dual_epochs=100):
     """
     Init method.
       param inner_loss: inner level objective function
@@ -34,8 +34,7 @@ class InnerSolution(nn.Module):
     self.dual_loss = 0
     self.batch_size = batch_size
     self.max_epochs = max_epochs
-    self.max_iters = max_iters
-    self.max_dual_iters = max_dual_iters
+    self.max_dual_epochs = max_dual_epochs
     self.eval = False
 
   def forward(self, outer_param, X_outer, y_outer):
@@ -54,7 +53,7 @@ class InnerSolution(nn.Module):
     Optimization loop for the inner-level model that approximates h*.
     """
     total_loss, total_epochs, total_iters = 0, 0, 0
-    for epoch in range(self.max_iters):
+    for epoch in range(self.max_epochs):
       total_epoch_loss, total_epoch_iters = 0, 0
       for data in self.inner_dataloader:
         Z, X, Y = data
@@ -80,12 +79,12 @@ class InnerSolution(nn.Module):
       wandb.log({"inner grad. norm": grad_norm})
     self.loss = total_loss/total_epochs
   
-  def optimize_dual(self, outer_param, X_outer, outer_grad):
+  def optimize_dual(self, outer_param, X_outer, y_outer, outer_grad):
     """
     Optimization loop for the inner-level model that approximates a*.
     """
     total_loss, total_epochs, total_iters = 0, 0, 0
-    for epoch in range(self.max_dual_iters):
+    for epoch in range(self.max_dual_epochs):
       total_epoch_loss, total_epoch_iters = 0, 0
       for data in self.inner_dataloader:
         Z, X, Y = data
@@ -94,20 +93,19 @@ class InnerSolution(nn.Module):
         X = X.to(self.device, dtype=torch.float)
         Y = Y.to(self.device, dtype=torch.float)
         # Get the predictions
-        #with torch.no_grad():
-        #  h_X_i = self.model.forward(Z)
-        #  Z_feature = h_X_i
-        #  X_outer_feature = self.model.forward(X_outer)
-        #  h_X_i.detach()
-        #  X_outer_feature.detach()
         with torch.no_grad():
-          h_X_i = self.model(Z)
-        a_X_i = self.dual_model(Z)
-        a_X_o = self.dual_model(X_outer)
-        #a_X_i = self.dual_model(Z_feature)
-        #a_X_o = self.dual_model(X_outer_feature)
+          #value = self.model(Z)
+          #value.detach()
+          h_X_i = self.model.get_features(Z)
+          h_X_i.detach()
+          h_X_o = self.model.get_features(X_outer)
+          h_X_o.detach()
+        a_X_i = self.dual_model(h_X_i)
+        a_X_o = self.dual_model(h_X_o)
+        #a_X_i = self.dual_model(Z)
+        #a_X_o = self.dual_model(X_outer)
         # Compute the loss
-        loss = self.loss_H(outer_param, h_X_i, a_X_i, a_X_o, X, outer_grad)
+        loss = self.loss_H(outer_param, value, a_X_i, a_X_o, X, outer_grad)
         # Backpropagation
         self.dual_optimizer.zero_grad()
         loss.backward()
@@ -140,16 +138,16 @@ class InnerSolution(nn.Module):
     loss = torch.mean(term1 + term2)
     return loss
 
-  def compute_hessian_vector_prod(self, outer_param, X_outer, y_outer, inner_value):
+  def compute_hessian_vector_prod(self, outer_param, X_outer, y_outer, inner_value, dual_value):
     """
     Computing B*a where a is dual_value=a(X_outer) and B is the functional derivative delta_{outer_param} delta_h g(outer_param,h*).
     """
     f = lambda outer_param, inner_value: self.inner_loss(outer_param, inner_value, y_outer)
     # Deatch items from the graph.
-    self.dual_value.detach()
+    dual_value.detach()
     inner_value.detach()
     # Here v has to be a tuple of the same shape as the args of f, so we put a zero vector and a*(X) into a tuple.
-    v = (torch.zeros_like(outer_param), self.dual_value)
+    v = (torch.zeros_like(outer_param), dual_value)
     # Here args has to be a tuple with args of f, so we put outer_param and h*(X) into a tuple.
     args = (outer_param, inner_value)
     hessvp = autograd.functional.hvp(f, args, v)[1][0]
@@ -195,12 +193,15 @@ class ArgMinOp(torch.autograd.Function):
       # as the h* model was trained on and on X_outter batches that h was evaluated on
       # in the outer loop where we optimize the outer objective g(outer_param, h).
       if not inner_solution.eval:
-        inner_solution.optimize_dual(outer_param, X_outer, outer_grad)
+        inner_solution.optimize_dual(outer_param, X_outer, y_outer, outer_grad)
     #X_outer_feature = inner_solution.model.forward(X_outer)
     #X_outer_feature.detach()
     #inner_solution.dual_value = inner_solution.dual_model(X_outer_feature)
-    inner_solution.dual_value = inner_solution.dual_model(X_outer)
-    # TODO: the following line is a test
-    #inner_solution.dual_value = (-1*outer_grad).detach()#(torch.ones_like(inner_solution.dual_value[0])*(-10), torch.ones_like(inner_solution.dual_value[1])*(-10))
-    grad = inner_solution.compute_hessian_vector_prod(outer_param, X_outer, y_outer, inner_value)
+    # Get the prediction
+    #with torch.no_grad():
+    #  h_X_o = inner_solution.model.get_features(X_outer)
+    #  h_X_o.detach()
+    #inner_solution.dual_value = inner_solution.dual_model(h_X_o)
+    dual_value = inner_solution.dual_model(X_outer)
+    grad = inner_solution.compute_hessian_vector_prod(outer_param, X_outer, y_outer, inner_value, dual_value)
     return None, grad, None, None

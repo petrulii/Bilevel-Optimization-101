@@ -24,7 +24,7 @@ class BilevelProblem:
   Instanciates the bilevel problem and solves it using Neural Implicit Differentiation.
   """
 
-  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_iters=200, max_inner_dual_iters=5):
+  def __init__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size=64, max_inner_epochs=100, max_inner_dual_epochs=100):
     """
     Init method.
       param outer_loss: outer level loss function
@@ -42,7 +42,7 @@ class BilevelProblem:
     self.batch_size = batch_size
     self.device = device
     self.outer_model, self.outer_optimizer, self.outer_scheduler = outer_model
-    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=1, max_iters=max_inner_iters, max_dual_iters=max_inner_dual_iters)
+    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=max_inner_epochs, max_dual_epochs=max_inner_dual_epochs)
 
   def __input_check__(self, outer_loss, inner_loss, outer_dataloader, inner_dataloader, outer_model, inner_models, device, batch_size):
     """
@@ -61,7 +61,7 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def optimize(self, outer_param, max_epochs=10, max_iters=100, eval_every_n=10, validation_data=None, test_data=None):
+  def optimize(self, outer_param, max_epochs=100, eval_every_n=10, validation_data=None, test_data=None):
     """
     Find the optimal outer solution.
       param outer_param: initial value of the outer variable

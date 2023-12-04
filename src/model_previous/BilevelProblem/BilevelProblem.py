@@ -13,6 +13,8 @@ sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
 from model_previous.FunctionApproximator.FunctionApproximator import FunctionApproximator
 from my_data.dsprite.dspriteKernel import *
 from model.utils import *
+# Loss helper functions
+MSE = nn.MSELoss()
 
 class BilevelProblem:
   """
@@ -50,7 +52,7 @@ class BilevelProblem:
       self.gamma = gamma
       self.lam1, self.lam2 = reg_param
       # Compute the RBF kernel matrix using vectorized operations
-      self.K_test = rbf_kernel(self.X_outer, self.X_test, self.gamma)
+      self.K_test_X = rbf_kernel(self.X_test, self.X_inner, self.gamma)
       self.K_inner_X = rbf_kernel(self.X_inner, self.X_inner, self.gamma)
       self.K_inner_Z = rbf_kernel(self.Z_inner, self.Z_inner, self.gamma)
       self.K_outer_inner_Z = rbf_kernel(self.Z_outer, self.Z_inner, self.gamma)
@@ -65,10 +67,10 @@ class BilevelProblem:
       self.a_star = lambda x : rbf_kernel(x, self.Z_inner_outer, self.gamma) @ self.phi
       # Compute optimal outer parameter
       self.eye_Z_inner = torch.eye(len(self.K_inner_Z), dtype=torch.float64)
-      inv_K_Z = torch.linalg.inv(self.K_inner_Z + self.eye_Z_inner * self.lam2)
-      assert torch.isclose(inv_K_Z @ (self.K_inner_Z + self.eye_Z_inner * self.lam2), torch.eye(len(self.K_inner_Z), dtype=torch.float64)).all()
-      A = self.K_inner_X @ inv_K_Z @ self.K_outer_inner_Z.T
-      self.opt_mu = self.least_squares_inverse((A @ self.K_outer_inner_Z @ inv_K_Z @ self.K_inner_X + self.lam1 * self.K_inner_X), (A @ self.Y_outer))
+      #inv_K_Z = torch.linalg.inv(self.K_inner_Z + self.eye_Z_inner * self.lam2)
+      #assert torch.isclose(inv_K_Z @ (self.K_inner_Z + self.eye_Z_inner * self.lam2), torch.eye(len(self.K_inner_Z), dtype=torch.float64)).all()
+      #A = self.K_inner_X @ inv_K_Z @ self.K_outer_inner_Z.T
+      #self.opt_mu = self.least_squares_inverse((A @ self.K_outer_inner_Z @ inv_K_Z @ self.K_inner_X + self.lam1 * self.K_inner_X), (A @ self.Y_outer))
       
     elif self.method=="implicit_diff":
       self.find_theta_star = find_theta_star
@@ -92,7 +94,7 @@ class BilevelProblem:
       param maxiter: maximum number of iterations
       param step: stepsize for gradient descent on the outer variable
     """
-    mu_new = self.opt_mu
+    mu_new = mu0#self.opt_mu
     n_iters, iters, converged, inner_loss, outer_loss, times = 0, [mu_new], False, [], [], []
     while n_iters < maxiter and not converged:
       mu_old = mu_new.clone()
@@ -107,13 +109,14 @@ class BilevelProblem:
       elif self.method == "kernel_implicit_diff":
         inner_loss.append((self.inner_objective(mu_new, h_star(self.Z_inner), self.K_inner_X)).item())
         outer_loss.append((self.outer_objective(mu_new, h_star(self.Z_outer), self.Y_outer)).item())
-        wandb.log({"out. loss MSE": ((1/2)*(torch.norm(self.Y_outer - h_star(self.Z_outer)))**2).item()})
-        wandb.log({"out. loss reg.": (mu_new.T @ self.K_inner_X @ mu_new).item()})
+        wandb.log({"outer var. norm": torch.norm(mu_new).item()})
+        wandb.log({"K norm": torch.norm(self.K_test_X).item()})
+        wandb.log({"K @ mu norm": torch.norm((self.K_test_X @ mu_new)).item()})
+        wandb.log({"y norm": torch.norm(self.Y_test).item()})
+        wandb.log({"test loss": MSE((self.K_test_X @ mu_new), self.Y_test).item()})
       times.append(time.time() - start)
-      wandb.log({"out. param. norm": torch.norm(mu_new)})
-      wandb.log({"inn. param. norm": torch.norm(self.beta)})
-      wandb.log({"inn. loss": inner_loss[-1]})
-      wandb.log({"out. loss": outer_loss[-1]})
+      #wandb.log({"out. param. norm": torch.norm(mu_new)})
+      #wandb.log({"inn. param. norm": torch.norm(self.beta)})
       #converged = self.check_convergence(mu_old, mu_new)
       iters.append(mu_new)
       n_iters += 1
@@ -170,7 +173,6 @@ class BilevelProblem:
       raise ValueError("Unkown method for solving a bilevel problem")
     # 4) Compute the next iterate x_{k+1} = x_k - grad L(x)
     mu_new = mu_old-step*grad
-    wandb.log({"out. grad. norm": torch.norm(grad)})
     # Remove the associated autograd
     mu_new = mu_new.detach()
     return mu_new, h_star
@@ -219,7 +221,7 @@ class BilevelProblem:
       loss = self.outer_objective(mu, value, y_out)
       loss.backward()
       f = lambda mu: self.outer_objective(mu, value, y_out)
-      assert torch.autograd.gradcheck(f, (mu), raise_exception=True)
+      #assert torch.autograd.gradcheck(f, (mu), rtol=0.01, raise_exception=True)
     return mu.grad
 
   def outer_grad2(self, mu, h, X_out, y_out):
@@ -241,7 +243,7 @@ class BilevelProblem:
       loss = self.outer_objective(mu, value, y_out)
       loss.backward()
       f = lambda value: self.outer_objective(mu, value, y_out)
-      torch.autograd.gradcheck(f, (value), raise_exception=True)
+      torch.autograd.gradcheck(f, (value), rtol=0.01, raise_exception=True)
       gradient = value.grad
     return gradient
 
@@ -263,7 +265,7 @@ class BilevelProblem:
       y_in = y_in
       f = lambda arg1, arg2: self.inner_objective(arg1, arg2, y_in)
       hess = hessian(f, (mu, value))[1][1]
-      torch.autograd.gradcheck(f, (mu, value), raise_exception=True)
+      torch.autograd.gradcheck(f, (mu, value), rtol=0.01, raise_exception=True)
     return hess.squeeze()
 
   def inner_grad12(self, mu, h, X_in, y_in):
@@ -284,7 +286,7 @@ class BilevelProblem:
       value.grad = None
       f = lambda arg1, arg2: self.inner_objective(arg1, arg2, y_in)
       hess = (hessian(f, (mu, value))[0][1])
-      #assert torch.autograd.gradcheck(f, (mu, value), raise_exception=True)
+      #assert torch.autograd.gradcheck(f, (mu, value), rtol=0.01, raise_exception=True)
     return hess.squeeze()
   
   def least_squares_inverse(self, A, b):

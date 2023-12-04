@@ -30,7 +30,7 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-max_epochs = 10000
+max_epochs = 1000
 max_outer_iters = 100
 max_inner_iters = 20
 eval_every_n = 100
@@ -47,7 +47,7 @@ inner_data, outer_data = split_train_data(train_data, split_ratio=0.5)
 inner_model, outer_model = build_net_for_dsprite(seed)
 inner_model.to(device)
 outer_model.to(device)
-print("First inner layer:", list(inner_model[0].parameters())[0])
+print("First inner layer:", inner_model.layer1.weight.data)
 print("First outer layer:", list(outer_model[0].parameters())[0])
 
 # Optimizer that improves the approximation of h*

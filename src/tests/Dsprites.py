@@ -27,19 +27,18 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-batch_size = 2400
-max_epochs = 100
-max_outer_iters = 100
-max_inner_dual_iters, max_inner_iters = 1, 1
+batch_size = 2450
+max_epochs = 2000
+max_inner_dual_epochs, max_inner_epochs = 1, 1
 eval_every_n = 1
 lam1 = 0.
-lam2 = 1e-3
+lam2 = 0.
 u_dim = 33
 
 # Get data
 #instrumental_train, treatment_train, outcome_train, instrumental_val, treatment_val, outcome_val, treatment_test, outcome_test = generate_dsprite_data(train_size=6, val_size=6)
 test_data = generate_test_dsprite(device=device)
-train_data, validation_data = generate_train_dsprite(data_size=5000, rand_seed=seed, device=device, val_size=200)
+train_data, validation_data = generate_train_dsprite(data_size=5000, rand_seed=seed, device=device, val_size=100)
 inner_data, outer_data = split_train_data(train_data, split_ratio=0.5)
 instrumental_in, treatment_in, outcome_in, instrumental_out, treatment_out, outcome_out, treatment_test, outcome_test = inner_data.instrumental, inner_data.treatment, inner_data.outcome, outer_data.instrumental, outer_data.treatment, outer_data.outcome, test_data.treatment, test_data.structural
 instrumental_val, treatment_val, outcome_val = validation_data.instrumental, validation_data.treatment, validation_data.outcome
@@ -57,7 +56,7 @@ inner_model, inner_dual_model, outer_model = build_net_for_dsprite(seed)
 inner_model.to(device)
 inner_dual_model.to(device)
 outer_model.to(device)
-print("First inner layer:", list(inner_model[0].parameters())[0])
+print("First inner layer:", inner_model.layer1.weight.data)
 print("First outer layer:", list(outer_model[0].parameters())[0])
 
 # Optimizer that improves the approximation of h*
@@ -74,14 +73,14 @@ inner_dual_scheduler = None
 
 # The outer neural network parametrized by the outer variable
 outer_param = state_dict_to_tensor(outer_model, device)#torch.cat((torch.rand(u_dim).to(device), state_dict_to_tensor(outer_model, device)), 0)
-outer_lr = 1e-5
+outer_lr = 1e-4
 outer_wd = 1e-3
 # Optimizer that improves the outer variable
 outer_optimizer = torch.optim.Adam([outer_param], lr=outer_lr, weight_decay=outer_wd)
 outer_scheduler = None
 
 # Print configuration
-run_name = "Dsprites bilevel::="+" inner_lr:"+str(inner_lr)+", dual_lr:"+str(inner_dual_lr)+", outer_lr:"+str(outer_lr)+" inner_wd:"+str(inner_wd)+", dual_wd:"+str(inner_dual_wd)+", outer_wd:"+str(outer_wd)+", max_inner_dual_iters:"+str(max_inner_dual_iters)+", max_inner_iters:"+str(max_inner_iters)+", lam1:"+str(lam1)+", lam2:"+str(lam2)+", batch_size:"+str(batch_size)+", max_epochs:"+str(max_epochs)
+run_name = "Dsprites bilevel::="+" inner_lr:"+str(inner_lr)+", dual_lr:"+str(inner_dual_lr)+", outer_lr:"+str(outer_lr)+" inner_wd:"+str(inner_wd)+", dual_wd:"+str(inner_dual_wd)+", outer_wd:"+str(outer_wd)+", max_inner_dual_epochs:"+str(max_inner_dual_epochs)+", max_inner_epochs:"+str(max_inner_epochs)+", lam1:"+str(lam1)+", lam2:"+str(lam2)+", batch_size:"+str(batch_size)+", max_epochs:"+str(max_epochs)
 print("Run configuration:", run_name)
 
 # Set logging
@@ -103,7 +102,6 @@ def fo(outer_param, g_z_out, Y):
     #pred = linear_reg_pred(feature, u)
     #loss = MSE(pred, Y) + lam2 * torch.norm(u) ** 2
     loss = MSE(g_z_out, Y)
-    wandb.log({"out. loss term1": loss.item()})
     #wandb.log({"out. loss term2": (lam2 * torch.norm(u) ** 2).item()})
     return loss
 
@@ -122,9 +120,9 @@ def fi(outer_param, g_z_in, X):
     return loss
 
 # Optimize using neural implicit differention
-bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_iters=max_inner_iters, max_inner_dual_iters=max_inner_dual_iters)
+bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_epochs=max_inner_epochs, max_inner_dual_epochs=max_inner_dual_epochs)
 # Solve the bilevel problem
-iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(outer_param, max_epochs=max_epochs, max_iters=max_outer_iters, eval_every_n=eval_every_n, validation_data=validation_data, test_data=test_data)
+iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(outer_param, max_epochs=max_epochs, eval_every_n=eval_every_n, validation_data=validation_data, test_data=test_data)
 
 # Show results
 print("Number of iterations:", iters)
