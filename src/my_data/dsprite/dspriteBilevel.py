@@ -149,16 +149,24 @@ def generate_train_dsprite(data_size, rand_seed, device, val_size=100):
     outcome = structural + outcome_noise
     structural = structural[:, np.newaxis]
     outcome = outcome[:, np.newaxis]
-    train_data_final = TrainDataSet(treatment=treatment[:-val_size, :],
-                        instrumental=instrumental[:-val_size, :],
-                        covariate=None,
-                        structural=structural[:-val_size, :],
-                        outcome=outcome[:-val_size, :])
-    validation_data_final = TrainDataSet(treatment=treatment[-val_size:, :],
-                        instrumental=instrumental[-val_size:, :],
-                        covariate=None,
-                        structural=structural[-val_size:, :],
-                        outcome=outcome[-val_size:, :])
+    if val_size == 0:
+        train_data_final = TrainDataSet(treatment=treatment,
+                            instrumental=instrumental,
+                            covariate=None,
+                            structural=structural,
+                            outcome=outcome)
+        validation_data_final = None
+    else:
+        train_data_final = TrainDataSet(treatment=treatment[:-val_size, :],
+                            instrumental=instrumental[:-val_size, :],
+                            covariate=None,
+                            structural=structural[:-val_size, :],
+                            outcome=outcome[:-val_size, :])
+        validation_data_final = TrainDataSet(treatment=treatment[-val_size:, :],
+                            instrumental=instrumental[-val_size:, :],
+                            covariate=None,
+                            structural=structural[-val_size:, :],
+                            outcome=outcome[-val_size:, :])
     return train_data_final, validation_data_final
 
 def split_train_data(train_data, split_ratio):
@@ -222,33 +230,34 @@ class InnerModel(nn.Module):
         self.layer9 = spectral_norm(nn.Linear(128, 32))
         self.layer10 = nn.BatchNorm1d(32)
         self.layer11 = nn.ReLU()
-        self.layer12 = nn.Linear(32, 1)
 
     def forward(self, x):
-        res = (self.layer12(self.layer11(self.layer10(self.layer9(self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x)))))))))))))
+        res = self.layer11(self.layer10(self.layer9(self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x)))))))))))
         return res
 
-    def get_features(self, x):
-        res = (self.layer11(self.layer10(self.layer9(self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x))))))))))))
+class OuterModel(nn.Module):
+    def __init__(self):
+        super(OuterModel, self).__init__()
+        self.layer1 = spectral_norm(nn.Linear(64 * 64, 1024))
+        self.layer2 = nn.ReLU()
+        self.layer3 = spectral_norm(nn.Linear(1024, 512))
+        self.layer4 = nn.ReLU()
+        self.layer5 = nn.BatchNorm1d(512)
+        self.layer6 = spectral_norm(nn.Linear(512, 128))
+        self.layer7 = nn.ReLU()
+        self.layer8 = spectral_norm(nn.Linear(128, 32))
+        self.layer9 = nn.BatchNorm1d(32)
+        self.layer10 = nn.Tanh()
+
+    def forward(self, x):
+        res = self.layer10(self.layer9(self.layer8(self.layer7(self.layer6(self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x))))))))))
         return res
 
 def build_net_for_dsprite(seed):
   torch.manual_seed(seed)
   instrumental_net = InnerModel()
   torch.manual_seed(seed)
-  instrumental_dual_net = InnerModel()
-  #instrumental_dual_net = nn.Sequential(nn.Linear(32, 32),
-  #                                      nn.Linear(32, 1))
+  instrumental_dual_net = nn.Sequential(nn.Linear(32, 32))
   torch.manual_seed(seed)
-  response_net = nn.Sequential(spectral_norm(nn.Linear(64 * 64, 1024)),
-                                nn.ReLU(),
-                                spectral_norm(nn.Linear(1024, 512)),
-                                nn.ReLU(),
-                                nn.BatchNorm1d(512),
-                                spectral_norm(nn.Linear(512, 128)),
-                                nn.ReLU(),
-                                spectral_norm(nn.Linear(128, 32)),
-                                nn.BatchNorm1d(32),
-                                nn.Tanh(),
-                                nn.Linear(32, 1))
+  response_net = OuterModel()
   return instrumental_net, instrumental_dual_net, response_net

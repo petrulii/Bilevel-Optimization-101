@@ -142,7 +142,7 @@ def set_seed(seed=None):
     param seed: the random seed, 0 by default
   """
   if seed is None:
-    seed = random.randrange(100)
+    seed = random.randrange(10000)
   print("Seed:", seed)
   random.seed(seed)
   np.random.seed(seed)
@@ -151,6 +151,7 @@ def set_seed(seed=None):
   torch.cuda.manual_seed_all(seed)
   torch.backends.cudnn.deterministic = True
   torch.backends.cudnn.benchmark = False
+  return seed
 
 def tensor_to_state_dict(model, params, device):
   """
@@ -161,13 +162,12 @@ def tensor_to_state_dict(model, params, device):
   start = 0
   current_dict = model.state_dict()
   for name, param in model.named_parameters():
-    dim = torch.tensor(param.size())
-    length = torch.prod(dim, 0)
-    dim = dim.tolist()
-    end = start + length
-    new_weights = (torch.reshape(params[start:end], tuple(dim))).to(device)#put to cuda
-    current_dict[name] = new_weights
-    start = end
+      dim = torch.tensor(param.size())
+      length = torch.prod(dim).item()
+      end = start + length
+      new_weights = params[start:end].view_as(param).to(device)
+      current_dict[name] = new_weights
+      start = end
   return current_dict
 
 def state_dict_to_tensor(model, device):
@@ -309,95 +309,3 @@ def syntheticIVdata():
   print("Opt. outer param:", coef_2)
   print("Opt. inner param:", coef_1*coef_2)
   return n, m, X_train, X_val, y_train, y_val
-
-def augment_stage1_feature(instrumental_feature):
-    feature = instrumental_feature
-    feature = add_const_col(feature)
-    return feature
-
-def augment_stage2_feature(predicted_treatment_feature):
-    feature = predicted_treatment_feature
-    feature = add_const_col(feature)
-    return feature
-
-def outer_prod(mat1: torch.Tensor, mat2: torch.Tensor):
-    mat1_shape = tuple(mat1.size())
-    mat2_shape = tuple(mat2.size())
-    assert mat1_shape[0] == mat2_shape[0]
-    nData = mat1_shape[0]
-    aug_mat1_shape = mat1_shape + (1,) * (len(mat2_shape) - 1)
-    aug_mat1 = torch.reshape(mat1, aug_mat1_shape)
-    aug_mat2_shape = (nData,) + (1,) * (len(mat1_shape) - 1) + mat2_shape[1:]
-    aug_mat2 = torch.reshape(mat2, aug_mat2_shape)
-    return aug_mat1 * aug_mat2
-
-def add_const_col(mat: torch.Tensor):
-    assert mat.dim() == 2
-    n_data = mat.size()[0]
-    device = mat.device
-    return torch.cat([mat, torch.ones((n_data, 1), device=device)], dim=1)
-
-def linear_reg_pred(feature, weight):
-    assert weight.dim() >= 2
-    if weight.dim() == 2:
-        return torch.matmul(feature, weight)
-    else:
-        return torch.einsum("nd,d...->n...", feature, weight)
-
-def linear_reg_loss(target, feature, reg):
-    weight = fit_linear(target, feature, reg)
-    pred = linear_reg_pred(feature, weight)
-    return torch.norm(target - pred, p=2) ** 2 + reg * torch.norm(weight) ** 2
-
-def fit_linear(target, feature, reg):
-    assert feature.dim() == 2
-    assert target.dim() >= 2
-    nData, nDim = feature.size()
-    A = torch.matmul(feature.t(), feature)
-    device = feature.device
-    A = A + reg * torch.eye(nDim, device=device)
-    # U = torch.cholesky(A)
-    # A_inv = torch.cholesky_inverse(U)
-    #TODO use cholesky version in the latest pytorch
-    A_inv = torch.inverse(A)
-    if target.dim() == 2:
-        b = torch.matmul(feature.t(), target)
-        weight = torch.matmul(A_inv, b)
-    else:
-        b = torch.einsum("nd,n...->d...", feature, target)
-        weight = torch.einsum("de,d...->e...", A_inv, b)
-    return weight
-
-def fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_feature, outcome_2nd_t, lam1, lam2):
-    # stage1
-    feature = augment_stage1_feature(instrumental_1st_feature)
-    stage1_weight = fit_linear(treatment_1st_feature, feature, lam1)
-    # predicting for stage 2
-    feature = augment_stage1_feature(instrumental_2nd_feature)
-    predicted_treatment_feature = linear_reg_pred(feature, stage1_weight)
-    # stage2
-    feature = augment_stage2_feature(predicted_treatment_feature)
-    stage2_weight = fit_linear(outcome_2nd_t, feature, lam2)
-    pred = linear_reg_pred(feature, stage2_weight)
-    stage2_loss = torch.norm((outcome_2nd_t - pred)) ** 2 + lam2 * torch.norm(stage2_weight) ** 2
-    return dict(stage1_weight=stage1_weight,
-                predicted_treatment_feature=predicted_treatment_feature,
-                stage2_weight=stage2_weight,
-                stage2_loss=stage2_loss)
-
-def find_V_opt(outer_model, outer_param, g_Z, X, lam1, device, inner_dataloader=None, inner_solution=None):
-    if g_Z is None:
-      # Take full-batch
-      for data in self.inner_dataloader:
-        Z_in, X_in, Y_in = data
-        # Move data to GPU
-        Z_in = Z_in.to(self.device, dtype=torch.float)
-        X_in = X_in.to(self.device, dtype=torch.float)
-        Y_in = Y_in.to(self.device, dtype=torch.float)
-        g_Z = self.inner_solution(outer_param, Z_in, X_in)
-    outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
-    treatment_feature = torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X)
-    instrumental_feature = g_Z
-    feature = augment_stage1_feature(instrumental_feature)
-    V = fit_linear(treatment_feature, feature, lam1)
-    return V

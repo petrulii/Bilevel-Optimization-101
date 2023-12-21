@@ -43,7 +43,7 @@ def linear_reg_pred(feature, weight):
 def linear_reg_loss(target, feature, reg):
     weight = fit_linear(target, feature, reg)
     pred = linear_reg_pred(feature, weight)
-    wandb.log({"inn. loss": (MSE(pred, target)).item()})
+    wandb.log({"inn. loss": (torch.norm((target - pred))**2).item()})#(MSE(pred, target))
     loss = torch.norm((target - pred)) ** 2 + reg * torch.norm(weight) ** 2
     return loss
 
@@ -85,34 +85,6 @@ def fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_f
                 predicted_treatment_feature=predicted_treatment_feature,
                 stage2_weight=stage2_weight,
                 stage2_loss=stage2_loss)
-
-def optimal_matrix_V(f_X, g_z, alpha=1e-3):
-    n = len(f_X)
-    # Check if a GPU is available and move data to the GPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Ensure that f_X and g_z have the same shapes
-    if f_X.size() != g_z.size():
-        raise ValueError("f_X and g_z must have the same shape")
-    # Create the identity matrix on the same device
-    identity = torch.eye(f_X.size(1)).to(device)
-    # Compute the optimal V using Ridge regression (L2 regularization)
-    gtg = torch.mm(g_z.t(), g_z)
-    gtg_reg = gtg + alpha * identity
-    V = torch.mm(f_X.t(), g_z) @ torch.inverse(gtg_reg)
-    return V/n
-
-def optimal_vector_u(y, z, V):
-    n = len(y)
-    # Ensure that y and z are column vectors (2D tensors)
-    if len(y.shape) == 1:
-        y = y.view(-1, 1)
-    if len(z.shape) == 1:
-        z = z.view(-1, 1)
-    # Compute the optimal u using the inverse method
-    ztz = torch.mm(V @ z.T, z @ V.T)
-    zty = torch.mm(V @ z.T , y)
-    u = torch.inverse(ztz) @ zty
-    return u/n
 
 class DFIVTrainer:
     """
@@ -165,6 +137,8 @@ class DFIVTrainer:
             feature = augment_stage1_feature(instrumental_feature)
             loss = linear_reg_loss(treatment_feature, feature, self.lam1)
             loss.backward()
+            grad_norm = (sum([torch.norm(p.grad)**2 for p in self.instrumental_net.parameters()]))
+            wandb.log({"inner grad. norm": grad_norm})
             self.instrumental_opt.step()
 
     def stage2_update(self, stage1_dataset, stage2_dataset):
@@ -187,6 +161,8 @@ class DFIVTrainer:
             loss = res["stage2_loss"]
             loss.backward()
             self.treatment_opt.step()
+            grad_norm = (sum([torch.norm(p.grad)**2 for p in self.treatment_net.parameters()]))
+            wandb.log({"outer var. grad. norm": grad_norm})
         return res["stage2_weight"]
     
     def evaluate(self, test_dataset, u):

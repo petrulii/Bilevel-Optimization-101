@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import wandb
 from torch import autograd
-from torch.autograd.functional import hessian
+from torch.autograd.functional import hessian, vjp, jvp, jacobian
+from functorch import jacrev
 
 # Add main project directory path
 sys.path.append('/home/clear/ipetruli/projects/bilevel-optimization/src')
@@ -12,13 +13,32 @@ from torch.func import functional_call
 from torch.nn import functional as func
 from model.utils import get_memory_info, cos_dist, tensor_to_state_dict
 from torchviz import make_dot
+from my_data.dsprite.dspriteBilevel import OuterModel
+from my_data.dsprite.trainer import augment_stage1_feature, augment_stage2_feature, fit_linear, linear_reg_pred
+
+device = "cuda"
+
+def outer_functional_call_V(stage1_weight, instrumental_2nd_feature, outcome_2nd_t, lam2):
+    feature = augment_stage1_feature(instrumental_2nd_feature)
+    predicted_treatment_feature = linear_reg_pred(feature, stage1_weight)
+    # stage2
+    feature = augment_stage2_feature(predicted_treatment_feature)
+    stage2_weight = fit_linear(outcome_2nd_t, feature, lam2)
+    pred = linear_reg_pred(feature, stage2_weight)
+    return torch.norm((outcome_2nd_t - pred)) ** 2 + lam2 * torch.norm(stage2_weight) ** 2
+
+def outer_functional_call(outer_param, outer_model, X):
+    outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
+    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X))
+    augmented_treatment_feature = augment_stage1_feature(treatment_feature)
+    return treatment_feature
 
 class InnerSolution(nn.Module):
   """
   Instanciates the inner solution of the bilevel problem.
   """
 
-  def __init__(self, inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=100, max_dual_epochs=100):
+  def __init__(self, inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=100, max_dual_epochs=100, args=None):
     """
     Init method.
       param inner_loss: inner level objective function
@@ -36,6 +56,10 @@ class InnerSolution(nn.Module):
     self.max_epochs = max_epochs
     self.max_dual_epochs = max_dual_epochs
     self.eval = False
+    self.outer = args[0]
+    self.outer_dataloader = args[1]
+    self.lam_u = args[2][0]
+    self.lam_V = args[2][1]
 
   def forward(self, outer_param, X_outer, y_outer):
     """
@@ -55,8 +79,7 @@ class InnerSolution(nn.Module):
     total_loss, total_epochs, total_iters = 0, 0, 0
     for epoch in range(self.max_epochs):
       total_epoch_loss, total_epoch_iters = 0, 0
-      for data in self.inner_dataloader:
-        Z, X, Y = data
+      for Z, X, Y in self.inner_dataloader:
         # Move data to GPU
         Z = Z.to(self.device, dtype=torch.float)
         X = X.to(self.device, dtype=torch.float)
@@ -86,26 +109,21 @@ class InnerSolution(nn.Module):
     total_loss, total_epochs, total_iters = 0, 0, 0
     for epoch in range(self.max_dual_epochs):
       total_epoch_loss, total_epoch_iters = 0, 0
-      for data in self.inner_dataloader:
-        Z, X, Y = data
+      for Z, X, Y in self.inner_dataloader:
         # Move data to GPU
         Z = Z.to(self.device, dtype=torch.float)
         X = X.to(self.device, dtype=torch.float)
         Y = Y.to(self.device, dtype=torch.float)
         # Get the predictions
         with torch.no_grad():
-          #value = self.model(Z)
-          #value.detach()
-          h_X_i = self.model.get_features(Z)
+          h_X_i = self.model(Z)
+          h_X_o = self.model(X_outer)
           h_X_i.detach()
-          h_X_o = self.model.get_features(X_outer)
           h_X_o.detach()
         a_X_i = self.dual_model(h_X_i)
         a_X_o = self.dual_model(h_X_o)
-        #a_X_i = self.dual_model(Z)
-        #a_X_o = self.dual_model(X_outer)
         # Compute the loss
-        loss = self.loss_H(outer_param, value, a_X_i, a_X_o, X, outer_grad)
+        loss = self.loss_H(outer_param, h_X_i, a_X_i, a_X_o, X, outer_grad)
         # Backpropagation
         self.dual_optimizer.zero_grad()
         loss.backward()
@@ -176,14 +194,59 @@ class ArgMinOp(torch.autograd.Function):
       ctx.inner_solution = inner_solution
       ctx.save_for_backward(outer_param, X_outer, y_outer, inner_value)
     else:
-      inner_value = inner_solution.model(X_outer)
+      with torch.no_grad():
+        inner_solution.model.train = False
+        inner_value = inner_solution.model(X_outer)
+        inner_solution.model.train = True
     return inner_value
 
   @staticmethod
   def backward(ctx, outer_grad):
     """
-    Backward pass of a function that approximates h* for Neur. Imp. Diff.
+    Computing the gradient of theta (param. of outer model) in closed form.
     """
+    # Context ctx allows to communicate from forward to backward
+    inner_solution = ctx.inner_solution
+    # Get the saved tensors
+    outer_param, Z_outer, X_outer, inner_value = ctx.saved_tensors
+    # Get inner Z and X
+    for Z, X, Y in inner_solution.inner_dataloader:
+      Z_inner = Z.to(device, dtype=torch.float)
+      X_inner = X.to(device, dtype=torch.float)
+    # Get outer Y
+    for Z, X, Y in inner_solution.outer_dataloader:
+      Y_outer = Y.to(device, dtype=torch.float)
+    with torch.no_grad():
+      # Get the value of phi(Z_inner)
+      phi_Z_inner = inner_solution.model(Z_inner)
+      # Get the value of psi(X_inner)
+      outer_NN_dic = tensor_to_state_dict(inner_solution.outer, outer_param, device)
+      # Functional call of outer NN with the current outer parameters
+      psi_X_inner = torch.func.functional_call(inner_solution.outer, parameter_and_buffer_dicts=outer_NN_dic, args=X_inner)
+      # Augmenting just adds a column of ones
+      feature = augment_stage1_feature(phi_Z_inner)
+      # Find V*
+      V_star = fit_linear(psi_X_inner, feature, inner_solution.lam_V)
+      # Outer objective L_out as a function of V*
+      func_Lout_V = lambda x: outer_functional_call_V(x, inner_value, Y_outer, inner_solution.lam_u)
+      # Compute the Jacobian of L_out wrt V*
+      vector = (jacobian(func_Lout_V, V_star)).T
+      # Augmenting just adds a column of ones
+      phi_feature = augment_stage1_feature(phi_Z_inner)
+      # V* as a function of psi
+      func_V_psi = lambda psi_X_inner: fit_linear(psi_X_inner, phi_feature, inner_solution.lam_V)
+      # Compute the Jacobian of V* wrt psi
+      jac_V_v = ((vjp(func_V_psi, psi_X_inner, vector.mT))[1]).T
+      # Outer feature map psi as a function of theta
+      func_psi_theta = lambda outer_param: outer_functional_call(outer_param, inner_solution.outer, X_inner)
+      # Compute the Jacobian of psi wrt theta
+      grad = ((vjp(func_psi_theta, outer_param, jac_V_v.T))[1]).T
+    return None, grad, None, None
+  
+  """
+  @staticmethod
+  def backward(ctx, outer_grad):
+    #Backward pass of a function that approximates h* for Neur. Imp. Diff.
     # Context ctx allows to communicate from forward to backward
     inner_solution = ctx.inner_solution
     outer_param, X_outer, y_outer, inner_value = ctx.saved_tensors
@@ -194,14 +257,10 @@ class ArgMinOp(torch.autograd.Function):
       # in the outer loop where we optimize the outer objective g(outer_param, h).
       if not inner_solution.eval:
         inner_solution.optimize_dual(outer_param, X_outer, y_outer, outer_grad)
-    #X_outer_feature = inner_solution.model.forward(X_outer)
-    #X_outer_feature.detach()
-    #inner_solution.dual_value = inner_solution.dual_model(X_outer_feature)
-    # Get the prediction
-    #with torch.no_grad():
-    #  h_X_o = inner_solution.model.get_features(X_outer)
-    #  h_X_o.detach()
-    #inner_solution.dual_value = inner_solution.dual_model(h_X_o)
-    dual_value = inner_solution.dual_model(X_outer)
-    grad = inner_solution.compute_hessian_vector_prod(outer_param, X_outer, y_outer, inner_value, dual_value)
+    with torch.no_grad():
+      h_X_o = inner_solution.model(X_outer)
+      dual_value = inner_solution.dual_model(h_X_o)
+      dual_value.detach()
+      grad = inner_solution.compute_hessian_vector_prod(outer_param, X_outer, y_outer, inner_value, dual_value)
     return None, grad, None, None
+"""
