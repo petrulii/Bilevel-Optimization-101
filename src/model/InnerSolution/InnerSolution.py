@@ -55,7 +55,7 @@ class InnerSolution(nn.Module):
     self.batch_size = batch_size
     self.max_epochs = max_epochs
     self.max_dual_epochs = max_dual_epochs
-    self.eval = False
+    self.evaluate = False
     self.outer = args[0]
     self.outer_dataloader = args[1]
     self.lam_u = args[2][0]
@@ -100,6 +100,7 @@ class InnerSolution(nn.Module):
       total_epochs += 1
       grad_norm = (sum([torch.norm(p.grad)**2 for p in self.model.parameters()]))
       wandb.log({"inner grad. norm": grad_norm})
+      #print("instrumental_net first layer norm:", torch.norm(self.model.layer1.weight))
     self.loss = total_loss/total_epochs
   
   def optimize_dual(self, outer_param, X_outer, y_outer, outer_grad):
@@ -183,21 +184,26 @@ class ArgMinOp(torch.autograd.Function):
     """
     Forward pass of a function that approximates h* for Neur. Imp. Diff.
     """
-    if not inner_solution.eval:
+    if not inner_solution.evaluate:
       # In forward autograd is disabled by default but we use it in optimize(outer_param).
       with torch.enable_grad():
         # Train the model to approximate h* at outer_param_k
+        inner_solution.model.train(True)
         inner_solution.optimize(outer_param)
+        inner_solution.model.train(False)
       # Remember the value h*(X_outer)
-      inner_value = inner_solution.model(X_outer)
+      with torch.no_grad():
+        inner_solution.model.eval()
+        inner_value = inner_solution.model(X_outer)
+      #print("after X_outer instrumental_net first layer norm:", torch.norm(inner_solution.model.layer1.weight))
       # Context ctx allows to communicate from forward to backward
       ctx.inner_solution = inner_solution
       ctx.save_for_backward(outer_param, X_outer, y_outer, inner_value)
     else:
       with torch.no_grad():
-        inner_solution.model.train = False
+        inner_solution.model.train(False)
         inner_value = inner_solution.model(X_outer)
-        inner_solution.model.train = True
+        inner_solution.model.train(True)
     return inner_value
 
   @staticmethod

@@ -15,7 +15,7 @@ from model.BilevelProblem.BilevelProblem import BilevelProblem
 from my_data.dsprite.dspriteBilevel import *
 from my_data.dsprite.trainer import *
 
-#import os
+import os
 #os.environ['WANDB_DISABLED'] = 'true'
 
 # Set seed
@@ -31,8 +31,8 @@ else:
     print("No GPUs found, setting the device to CPU.")
 
 # Setting hyper-parameters
-batch_size = 2432
-max_epochs = 10000
+batch_size = 2500
+max_epochs = 5000
 max_inner_dual_epochs, max_inner_epochs = 20, 20
 eval_every_n = 1
 lam_u = 0.1
@@ -41,7 +41,7 @@ lam_V = 0.1
 # Get data
 #instrumental_train, treatment_train, outcome_train, instrumental_val, treatment_val, outcome_val, treatment_test, outcome_test = generate_dsprite_data(train_size=6, val_size=6)
 test_data = generate_test_dsprite(device=device)
-train_data, validation_data = generate_train_dsprite(data_size=5000, rand_seed=seed, device=device, val_size=136)
+train_data, validation_data = generate_train_dsprite(data_size=5000, rand_seed=seed, device=device, val_size=0)
 inner_data, outer_data = split_train_data(train_data, split_ratio=0.5)
 
 # Weird scaling of lambdas done in training
@@ -54,9 +54,9 @@ if not (validation_data is None):
 
 # Dataloaders for inner and outer data
 inner_data = DspritesData(instrumental_in, treatment_in, outcome_in)
-inner_dataloader = DataLoader(dataset=inner_data, batch_size=batch_size, shuffle=True, drop_last=True)
+inner_dataloader = DataLoader(dataset=inner_data, batch_size=batch_size, shuffle=False)#, drop_last=True)
 outer_data = DspritesData(instrumental_out, treatment_out, outcome_out)
-outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch_size, shuffle=True, drop_last=True)
+outer_dataloader = DataLoader(dataset=outer_data, batch_size=batch_size, shuffle=False)#, drop_last=True)
 test_data = DspritesTestData(treatment_test, outcome_test)
 if not (validation_data is None):
     validation_data = DspritesData(instrumental_val, treatment_val, outcome_val)
@@ -97,7 +97,7 @@ run_name = "Dsprites bilevel::="+" inner_lr:"+str(inner_lr)+", dual_lr:"+str(inn
 print("Run configuration:", run_name)
 
 # Set logging
-wandb.init(group="Dsprites_bilevelIV_a=Wh", name=run_name)
+wandb.init(group="Dsprites_bilevelIV_a=Wh_test", name=run_name)
 
 # Gather all models
 inner_models = (inner_model, inner_optimizer, inner_scheduler, inner_dual_model, inner_dual_optimizer, inner_dual_scheduler)
@@ -109,14 +109,16 @@ MSE = nn.MSELoss()
 # Outer objective function
 def fo(outer_param, g_z_out, Y):
     # Train only the feature map f(X)
-    inner_model.train(False)
+    outer_model.train(True)
+    inner_model.eval()
     # Get the value of g(Z) inner
     instrumental_1st_feature = inner_model(inner_data.instrumental).detach()
     # Get the value of g(Z) outer
-    instrumental_2nd_feature = g_z_out
+    instrumental_2nd_feature = g_z_out.detach()
     # Get the value of f(X) inner
     outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
-    treatment_1st_feature = torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=inner_data.treatment)
+    treatment_1st_feature = torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=inner_data.treatment, strict=True)
+    #print("before call instrumental_net first layer norm:", torch.norm(inner_model.layer1.weight))
     res = fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_feature, Y, lam_V, lam_u)
     return res["stage2_loss"], res["stage2_weight"]
 
@@ -124,9 +126,10 @@ def fo(outer_param, g_z_out, Y):
 def fi(outer_param, g_z_in, X):
     # Train only the feature map g(Z)
     inner_model.train(True)
+    outer_model.eval()
     # Get the value of f(X) outer
     outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
-    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X))
+    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X, strict=True))
     # Get the value of g(Z)
     instrumental_feature = g_z_in
     feature = augment_stage1_feature(instrumental_feature)
@@ -137,10 +140,6 @@ def fi(outer_param, g_z_in, X):
 bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_epochs=max_inner_epochs, max_inner_dual_epochs=max_inner_dual_epochs, args=[lam_u, lam_V])
 # Solve the bilevel problem
 iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(outer_param, max_epochs=max_epochs, eval_every_n=eval_every_n, validation_data=validation_data, test_data=test_data)
-
-# Show results
-print("Number of iterations:", iters)
-print("Average iteration time:", np.average(times))
 
 """
 # Outer objective function
@@ -158,7 +157,7 @@ def fo(outer_param, g_z_out, Y):
 def fi(outer_param, g_z_in, X):
     # Get the value of f(X) outer
     outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
-    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X))
+    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X, strict=True))
     wandb.log({"inn. loss": (torch.norm((treatment_feature - g_z_in))**2).item()})
     loss = torch.norm((treatment_feature - g_z_in)) ** 2 + reg * torch.norm(weight) ** 2
     return loss

@@ -41,6 +41,7 @@ def linear_reg_pred(feature, weight):
         return torch.einsum("nd,d...->n...", feature, weight)
 
 def linear_reg_loss(target, feature, reg):
+    #print("Saying hi!")
     weight = fit_linear(target, feature, reg)
     pred = linear_reg_pred(feature, weight)
     wandb.log({"inn. loss": (torch.norm((target - pred))**2).item()})#(MSE(pred, target))
@@ -67,6 +68,10 @@ def fit_linear(target, feature, reg):
     return weight
 
 def fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_feature, outcome_2nd_t, lam1, lam2):
+    #print("treatment_1st_feature norm:", torch.norm(treatment_1st_feature))
+    #print("instrumental_1st_feature norm:", torch.norm(instrumental_1st_feature))
+    #print("instrumental_2nd_feature norm:", torch.norm(instrumental_2nd_feature))
+    #print("outcome_2nd_t norm:", torch.norm(outcome_2nd_t))
     # stage1
     feature = augment_stage1_feature(instrumental_1st_feature)
     stage1_weight = fit_linear(treatment_1st_feature, feature, lam1)
@@ -140,6 +145,7 @@ class DFIVTrainer:
             grad_norm = (sum([torch.norm(p.grad)**2 for p in self.instrumental_net.parameters()]))
             wandb.log({"inner grad. norm": grad_norm})
             self.instrumental_opt.step()
+            #print("instrumental_net first layer norm:", torch.norm(self.instrumental_net.layer1.weight))
 
     def stage2_update(self, stage1_dataset, stage2_dataset):
         """
@@ -147,7 +153,7 @@ class DFIVTrainer:
         """
         # Train only the feature map f(X)
         self.treatment_net.train(True)
-        self.instrumental_net.train(False)
+        self.instrumental_net.eval()
         # Get the value of g(Z)_stage1
         instrumental_1st_feature = self.instrumental_net(stage1_dataset.instrumental).detach()
         # Get the value of g(Z)_stage2
@@ -157,6 +163,7 @@ class DFIVTrainer:
             self.treatment_opt.zero_grad()
             # Get the value of f(X)_stage1
             treatment_1st_feature = self.treatment_net(stage1_dataset.treatment)
+            #print("before call instrumental_net first layer norm:", torch.norm(self.instrumental_net.layer1.weight))
             res = fit_2sls(treatment_1st_feature, instrumental_1st_feature, instrumental_2nd_feature, stage2_dataset.outcome, self.lam1, self.lam2)
             loss = res["stage2_loss"]
             loss.backward()

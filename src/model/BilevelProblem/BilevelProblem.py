@@ -69,13 +69,13 @@ class BilevelProblem:
     self.outer_model.train(False)
     self.inner_solution.model.train(False)
     self.inner_solution.dual_model.train(False)
-    self.inner_solution.eval = True
+    self.inner_solution.evaluate = True
 
   def eval_mode_off(self):
     self.outer_model.train(True)
     self.inner_solution.model.train(True)
     self.inner_solution.dual_model.train(True)
-    self.inner_solution.eval = False
+    self.inner_solution.evaluate = False
 
   def optimize(self, outer_param, max_epochs=100, eval_every_n=10, validation_data=None, test_data=None):
     """

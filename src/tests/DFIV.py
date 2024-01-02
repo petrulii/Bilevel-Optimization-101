@@ -13,8 +13,12 @@ from model.utils import *
 from my_data.dsprite.trainer import DFIVTrainer
 from my_data.dsprite.dspriteDFIV import *
 
+import os
+#os.environ['WANDB_DISABLED'] = 'true'
+
 # Set seed
-seed = set_seed()
+seed = 42#set_seed()
+set_seed(seed)
 
 # Setting the device to GPUs if available.
 if torch.cuda.is_available():
@@ -26,7 +30,6 @@ else:
 
 # Setting hyper-parameters
 max_epochs = 5000
-max_outer_iters = 100
 max_inner_iters = 20
 lam2 = 0.1
 lam1 = 0.1
@@ -61,7 +64,7 @@ run_name = "DFIV::="+" inner_lr:"+str(inner_lr)+", outer_lr"+str(outer_lr)+", in
 print("Run configuration:", run_name)
 
 # Set logging
-wandb.init(group="Dsprites_DFIV", name=run_name)
+wandb.init(group="Dsprites_DFIV_test", name=run_name)
 
 # Initialize and train the DFIVTrainer
 dfiv_trainer = DFIVTrainer(
