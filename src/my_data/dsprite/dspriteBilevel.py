@@ -257,7 +257,7 @@ def build_net_for_dsprite(seed):
   torch.manual_seed(seed)
   instrumental_net = InnerModel()
   torch.manual_seed(seed)
-  instrumental_dual_net = nn.Sequential(nn.Linear(32, 32))
+  instrumental_dual_net = InnerModel()#nn.Sequential(nn.Linear(33, 33))
   torch.manual_seed(seed)
   response_net = OuterModel()
   return instrumental_net, instrumental_dual_net, response_net

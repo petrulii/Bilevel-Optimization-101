@@ -94,7 +94,7 @@ class BilevelProblem:
         # Inner value corresponds to h*(Z)
         outer_param.requires_grad = True
         forward_start = time.time()
-        inner_value = self.inner_solution(outer_param, Z, X)
+        inner_value = self.inner_solution.forward(outer_param, Z, X)
         wandb.log({"duration of forward": time.time() - forward_start})
         loss, u = self.outer_loss(outer_param, inner_value, Y)
         # For checking the computational <autograd> graph.

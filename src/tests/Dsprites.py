@@ -114,7 +114,7 @@ def fo(outer_param, g_z_out, Y):
     # Get the value of g(Z) inner
     instrumental_1st_feature = inner_model(inner_data.instrumental).detach()
     # Get the value of g(Z) outer
-    instrumental_2nd_feature = g_z_out.detach()
+    instrumental_2nd_feature = g_z_out
     # Get the value of f(X) inner
     outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
     treatment_1st_feature = torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=inner_data.treatment, strict=True)
