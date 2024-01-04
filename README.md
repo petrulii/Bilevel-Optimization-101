@@ -8,8 +8,11 @@ Make sure to add BilevelProblem and InnerSolution directories to system PATH bef
 To install dependencies:
 pip install -r dependencies.txt
 
-To run the dsprites experiment:
+To run the dsprites experiment with functional bilevel framework:
 python tests/Dsprites.py
 
-To remove wandb logging:
-uncomment lines 18-19 in file bilevel-optimization/src/tests/Dsprites.py
+To select a method of computing a*() for outer variable gradient computation:
+set the variable a_star_method in line 41 in file bilevel-optimization/src/tests/Dsprites.py
+
+To activate wandb logging:
+comment line 19 in file bilevel-optimization/src/tests/Dsprites.py

@@ -2,6 +2,7 @@ torch
 wandb
 numpy
 torchviz
-sklearn
+scikit-learn
 functorch
 filelock
+matplotlib
