@@ -16,7 +16,7 @@ from my_data.dsprite.dspriteBilevel import *
 from my_data.dsprite.trainer import *
 
 import os
-#os.environ['WANDB_DISABLED'] = 'true'
+os.environ['WANDB_DISABLED'] = 'true'
 
 # Set seed
 seed = 42#set_seed()
@@ -37,6 +37,8 @@ max_inner_dual_epochs, max_inner_epochs = 20, 20
 eval_every_n = 1
 lam_u = 0.1
 lam_V = 0.1
+# Method for computing a*() : "closed_form_a", "GD", "GDinH", "closed_form_DFIV"
+a_star_method = "closed_form_a"
 
 # Get data
 #instrumental_train, treatment_train, outcome_train, instrumental_val, treatment_val, outcome_val, treatment_test, outcome_test = generate_dsprite_data(train_size=6, val_size=6)
@@ -108,9 +110,6 @@ MSE = nn.MSELoss()
 
 # Outer objective function
 def fo(outer_param, g_z_out, Y):
-    # Train only the feature map f(X)
-    outer_model.train(True)
-    inner_model.eval()
     # Get the value of g(Z) inner
     instrumental_1st_feature = inner_model(inner_data.instrumental).detach()
     # Get the value of g(Z) outer
@@ -124,9 +123,6 @@ def fo(outer_param, g_z_out, Y):
 
 # Inner objective function
 def fi(outer_param, g_z_in, X):
-    # Train only the feature map g(Z)
-    inner_model.train(True)
-    outer_model.eval()
     # Get the value of f(X) outer
     outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
     treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X, strict=True))
@@ -137,28 +133,6 @@ def fi(outer_param, g_z_in, X):
     return loss
 
 # Optimize using neural implicit differention
-bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_epochs=max_inner_epochs, max_inner_dual_epochs=max_inner_dual_epochs, args=[lam_u, lam_V])
+bp_neural = BilevelProblem(fo, fi, outer_dataloader, inner_dataloader, outer_models, inner_models, device, batch_size=batch_size, max_inner_epochs=max_inner_epochs, max_inner_dual_epochs=max_inner_dual_epochs, args=[lam_u, lam_V, a_star_method])
 # Solve the bilevel problem
 iters, outer_losses, inner_losses, test_losses, times = bp_neural.optimize(outer_param, max_epochs=max_epochs, eval_every_n=eval_every_n, validation_data=validation_data, test_data=test_data)
-
-"""
-# Outer objective function
-def fo(outer_param, g_z_out, Y):
-    # Get the value of g(Z) outer
-    feature = augment_stage2_feature(g_z_out)
-    stage2_weight = fit_linear(Y, feature, lam2)
-    pred = linear_reg_pred(feature, stage2_weight)
-    # Get the value of f(X) inner
-    wandb.log({"out. loss": (MSE(pred, Y)).item()})
-    stage2_loss = torch.norm((Y - pred)) ** 2 + lam2 * torch.norm(stage2_weight) ** 2
-    return stage2_loss, stage2_weight
-
-# Inner objective function
-def fi(outer_param, g_z_in, X):
-    # Get the value of f(X) outer
-    outer_NN_dic = tensor_to_state_dict(outer_model, outer_param, device)
-    treatment_feature = (torch.func.functional_call(outer_model, parameter_and_buffer_dicts=outer_NN_dic, args=X, strict=True))
-    wandb.log({"inn. loss": (torch.norm((treatment_feature - g_z_in))**2).item()})
-    loss = torch.norm((treatment_feature - g_z_in)) ** 2 + reg * torch.norm(weight) ** 2
-    return loss
-"""

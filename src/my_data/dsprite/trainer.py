@@ -41,7 +41,6 @@ def linear_reg_pred(feature, weight):
         return torch.einsum("nd,d...->n...", feature, weight)
 
 def linear_reg_loss(target, feature, reg):
-    #print("Saying hi!")
     weight = fit_linear(target, feature, reg)
     pred = linear_reg_pred(feature, weight)
     wandb.log({"inn. loss": (torch.norm((target - pred))**2).item()})#(MSE(pred, target))

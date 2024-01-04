@@ -44,7 +44,7 @@ class BilevelProblem:
     self.batch_size = batch_size
     self.device = device
     self.outer_model, self.outer_optimizer, self.outer_scheduler = outer_model
-    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=max_inner_epochs, max_dual_epochs=max_inner_dual_epochs, args=(self.outer_model, self.outer_dataloader, args))
+    self.inner_solution = InnerSolution(inner_loss, inner_dataloader, inner_models, device, batch_size, max_epochs=max_inner_epochs, max_dual_epochs=max_inner_dual_epochs, args=args, outer_model=self.outer_model)
     self.lam_u = args[0]
     self.lam_V = args[1]
 
@@ -65,18 +65,6 @@ class BilevelProblem:
     if not (type(batch_size) is int):
       raise TypeError("Batch size must be an integer value.")
 
-  def eval_mode_on(self):
-    self.outer_model.train(False)
-    self.inner_solution.model.train(False)
-    self.inner_solution.dual_model.train(False)
-    self.inner_solution.evaluate = True
-
-  def eval_mode_off(self):
-    self.outer_model.train(True)
-    self.inner_solution.model.train(True)
-    self.inner_solution.dual_model.train(True)
-    self.inner_solution.evaluate = False
-
   def optimize(self, outer_param, max_epochs=100, eval_every_n=10, validation_data=None, test_data=None):
     """
     Find the optimal outer solution.
@@ -88,15 +76,23 @@ class BilevelProblem:
       for Z, X, Y in self.outer_dataloader:
         start = time.time()
         # Move data to GPU
-        Z = Z.to(self.device, dtype=torch.float)
-        X = X.to(self.device, dtype=torch.float)
-        Y = Y.to(self.device, dtype=torch.float)
+        Z_outer = Z.to(self.device, dtype=torch.float)
+        X_outer = X.to(self.device, dtype=torch.float)
+        Y_outer = Y.to(self.device, dtype=torch.float)
         # Inner value corresponds to h*(Z)
         outer_param.requires_grad = True
         forward_start = time.time()
-        inner_value = self.inner_solution.forward(outer_param, Z, X)
+        # Here is the only place where we need to optimize the inner solution
+        self.outer_model.train(True)
+        self.inner_solution.optimize_inner = True
+        # Get the value of h*(Z_outer)
+        inner_value = self.inner_solution.forward(outer_param, Z_outer, Y_outer)
+        # Make sure that the inner solution is not optimized
+        self.inner_solution.optimize_inner = False
+        self.inner_solution.model.train(False)
+        self.inner_solution.dual_model.train(False)
         wandb.log({"duration of forward": time.time() - forward_start})
-        loss, u = self.outer_loss(outer_param, inner_value, Y)
+        loss, u = self.outer_loss(outer_param, inner_value, Y_outer)
         # For checking the computational <autograd> graph.
         #make_dot(loss, params={ "outer param.":outer_param}, show_attrs=True, show_saved=True).render("graph_loss", format="png")
         #exit(0)
@@ -136,7 +132,9 @@ class BilevelProblem:
     """
     if outer_model is None:
       outer_model = self.outer_model
-    self.eval_mode_on()
+    self.outer_model.train(False)
+    self.inner_solution.model.train(False)
+    self.inner_solution.dual_model.train(False)
     with torch.no_grad():
       Y = (torch.from_numpy(data.outcome)).to(self.device, dtype=torch.float)
       X = (torch.from_numpy(data.treatment)).to(self.device, dtype=torch.float)
@@ -147,5 +145,4 @@ class BilevelProblem:
         loss = MSE(pred, Y)
       else:
         loss = MSE((pred @ last_layer[:-1] + last_layer[-1]), Y)
-    self.eval_mode_off()
     return loss.item()
